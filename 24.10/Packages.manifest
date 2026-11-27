@@ -1,0 +1,47 @@
+Package: luci-app-ruantiblock
+Version: 2.1.12-r5
+Depends: libc, ruantiblock
+Source: /home/runner/work/ruantiblock_openwrt/ruantiblock_openwrt/luci-app-ruantiblock
+SourceName: luci-app-ruantiblock
+Section: luci
+SourceDateEpoch: 1795790656
+URL: https://github.com/openwrt/luci
+Maintainer: OpenWrt LuCI community
+Architecture: all
+Installed-Size: 102400
+Filename: luci-app-ruantiblock_2.1.12-r5_all.ipk
+Size: 20871
+SHA256sum: ffc7c8140ae3647e1953ef9a71999007b25d93794e44c22285ae1f444241039f
+Description:  LuCI support for ruantiblock
+
+Package: luci-i18n-ruantiblock-ru
+Version: 2.1.12-r5
+Depends: libc, luci-app-ruantiblock
+Source: /home/runner/work/ruantiblock_openwrt/ruantiblock_openwrt/luci-app-ruantiblock
+SourceName: luci-app-ruantiblock
+Section: luci
+SourceDateEpoch: 1795790656
+Maintainer: gSpot <https://github.com/gSpotx2f/ruantiblock_openwrt>
+Architecture: all
+Installed-Size: 30720
+Filename: luci-i18n-ruantiblock-ru_2.1.12-r5_all.ipk
+Size: 6227
+SHA256sum: 8737aa45960865feba7aad5bb77b48396819058029dd21cb0f23b325f8922f19
+Description:  Translation for luci-app-ruantiblock - Русский (Russian)
+
+Package: ruantiblock
+Version: 2.1.12-r5
+Depends: libc, dnsmasq-full, kmod-nft-tproxy
+Source: /home/runner/work/ruantiblock_openwrt/ruantiblock_openwrt/ruantiblock
+SourceName: ruantiblock
+Section: net
+SourceDateEpoch: 1795790656
+URL: https://github.com/gSpotx2f/ruantiblock_openwrt
+Maintainer: gSpot <https://github.com/gSpotx2f/ruantiblock_openwrt>
+Architecture: all
+Installed-Size: 143360
+Filename: ruantiblock_2.1.12-r5_all.ipk
+Size: 24404
+SHA256sum: 0c7ba12f2425bf7926c27a8f6c9b73b028b37639fdaab00d2abf096e75fd81c0
+Description:  Ruantiblock
+
