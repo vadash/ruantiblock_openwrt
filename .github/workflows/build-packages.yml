@@ -124,6 +124,8 @@ jobs:
       - name: Publish feed and instructions
         if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           sdk_dir="$(find "$RUNNER_TEMP/sdk" -mindepth 1 -maxdepth 1 -type d -print -quit)"
           feed_dir="$RUNNER_TEMP/feed/24.10"
@@ -150,7 +152,7 @@ jobs:
           git -C "$publish_dir" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git -C "$publish_dir" remote get-url origin >/dev/null 2>&1 || \
             git -C "$publish_dir" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
-          git -C "$publish_dir" remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$publish_dir" remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git -C "$publish_dir" add .nojekyll index.html 24.10
           if ! git -C "$publish_dir" diff --cached --quiet; then
             git -C "$publish_dir" commit -m "Publish OpenWrt 24.10 packages for $GITHUB_REF_NAME"
