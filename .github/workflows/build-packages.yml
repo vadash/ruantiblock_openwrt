@@ -56,7 +56,7 @@ jobs:
         run: |
           base_url=https://downloads.openwrt.org/releases/24.10.0/targets/rockchip/armv8
           curl --fail --silent --show-error --location --output sha256sums "$base_url/sha256sums"
-          sdk_file="$(awk '/openwrt-sdk-.*\.tar\.zst$/ {print $2; exit}' sha256sums)"
+          sdk_file="$(awk '/openwrt-sdk-.*\.tar\.zst$/ {sub(/^\*/, "", $2); print $2; exit}' sha256sums)"
           test -n "$sdk_file"
           sdk_hash="$(awk -v file="$sdk_file" '$2 == "*" file {print $1}' sha256sums)"
           test -n "$sdk_hash"
