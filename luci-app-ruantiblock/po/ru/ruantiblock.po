@@ -415,9 +415,6 @@ msgstr "Ruantiblock"
 msgid "Run at startup"
 msgstr "Запуск при старте системы"
 
-msgid "Safe blacklist update"
-msgstr "Безопасное обновление блэклиста"
-
 msgid "Save"
 msgstr "Сохранить"
 
@@ -468,13 +465,6 @@ msgstr "Суммировать '/24' подсети"
 
 msgid "Summarize IP ranges"
 msgstr "Суммировать IP диапазоны"
-
-msgid ""
-"If update fails, the old blacklist configuration will be retained. "
-"Temporary files are used, when updating the blacklist (increases memory consumption)."
-msgstr ""
-"Если обновление завершилось с ошибками, будет сохранена старая конфигурация блэклиста. "
-"При обновлении используются временные файлы (увеличивается потребление памяти)."
 
 msgid ""
 "The number of IP addresses in the subnet, upon reaching which the entire "

@@ -2,12 +2,19 @@ import os
 import re
 import subprocess
 import tempfile
+import textwrap
 import unittest
 from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
 CUSTOM_CRON = "0 3 */3 * * /usr/bin/ruantiblock update\n15 4 * * * /usr/bin/other update\n"
+PACKAGE_MAKEFILES = (
+    "ruantiblock/Makefile",
+    "luci-app-ruantiblock/Makefile",
+    "ruantiblock-mod-lua/Makefile",
+    "ruantiblock-mod-py/Makefile",
+)
 
 
 class PackageHookTests(unittest.TestCase):
@@ -165,16 +172,54 @@ printf 'cron:%s\\n' "$1" >> "$PREFIX/tmp/calls"
 
 
 class PackageVersionTests(unittest.TestCase):
-    def test_first_feed_release_versions_match(self):
-        for relative_path in ("ruantiblock/Makefile", "luci-app-ruantiblock/Makefile"):
+    def test_all_feed_packages_use_first_release_versions(self):
+        for relative_path in PACKAGE_MAKEFILES:
             with self.subTest(makefile=relative_path):
                 content = (ROOT / relative_path).read_text()
                 version = re.search(r"^PKG_VERSION:=(.+)$", content, re.MULTILINE)
                 release = re.search(r"^PKG_RELEASE:=(.+)$", content, re.MULTILINE)
                 self.assertIsNotNone(version)
                 self.assertIsNotNone(release)
-                self.assertEqual(version.group(1), "2.1.12")
-                self.assertEqual(release.group(1), "5")
+                self.assertEqual(version.group(1), "2.2.0")
+                self.assertEqual(release.group(1), "1")
+
+    def test_release_validation_requires_all_four_package_versions(self):
+        workflow = (ROOT / ".github/workflows/build-packages.yml").read_text()
+        step = re.search(
+            r"- name: Validate release versions\n.*?run: \|\n(.*?)(?=\n      - name:)",
+            workflow,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(step)
+        commands = textwrap.dedent(step.group(1))
+        environment = os.environ.copy()
+        environment.update(GITHUB_REF_TYPE="branch", GITHUB_REF_NAME="main")
+        with tempfile.TemporaryDirectory() as temp:
+            directory = Path(temp)
+            for relative_path in PACKAGE_MAKEFILES:
+                makefile = directory / relative_path
+                makefile.parent.mkdir(parents=True, exist_ok=True)
+                version = "2.1.12" if relative_path == "ruantiblock-mod-lua/Makefile" else "2.2.0"
+                makefile.write_text(f"PKG_VERSION:={version}\nPKG_RELEASE:=1\n")
+            mismatched = subprocess.run(
+                ["bash", "-e", "-o", "pipefail", "-c", commands],
+                cwd=directory,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertNotEqual(mismatched.returncode, 0)
+            for relative_path in PACKAGE_MAKEFILES:
+                (directory / relative_path).write_text("PKG_VERSION:=2.2.0\nPKG_RELEASE:=1\n")
+            matching = subprocess.run(
+                ["bash", "-e", "-o", "pipefail", "-c", commands],
+                cwd=directory,
+                env=environment,
+                capture_output=True,
+                text=True,
+            )
+            self.assertEqual(matching.returncode, 0, matching.stderr)
+
 
     def test_translation_version_matches_feed_release(self):
         content = (ROOT / "luci-app-ruantiblock/Makefile").read_text()

@@ -385,9 +385,6 @@ msgstr ""
 msgid "Run at startup"
 msgstr ""
 
-msgid "Safe blacklist update"
-msgstr ""
-
 msgid "Save"
 msgstr ""
 
@@ -430,11 +427,6 @@ msgid "Summarize '/24' networks"
 msgstr ""
 
 msgid "Summarize IP ranges"
-msgstr ""
-
-msgid ""
-"If update fails, the old blacklist configuration will be retained. "
-"Temporary files are used, when updating the blacklist (increases memory consumption)."
 msgstr ""
 
 msgid ""

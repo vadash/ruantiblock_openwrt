@@ -20,6 +20,7 @@
 <body>
   <h1>Ruantiblock packages for OpenWrt 24.10</h1>
   <p>This fork publishes architecture-independent packages for OpenWrt 24.10. Add the feed once, then use LuCI or SSH to install and update ruantiblock.</p>
+  <p><strong>Current release:</strong> <code>2.2.0-r1</code>.</p>
 
   <p class="notice"><strong>Unsigned personal feed.</strong> HTTPS protects the connection, but opkg does not verify a publisher signature. Add this feed only if you trust this repository.</p>
 
@@ -67,12 +68,18 @@ opkg upgrade ruantiblock luci-app-ruantiblock</pre>
   <pre>opkg upgrade luci-i18n-ruantiblock-ru</pre>
   <p>Use the targeted commands instead of an unrestricted <code>opkg upgrade</code>, which can update unrelated packages.</p>
 
+  <h2>Offline recovery</h2>
+  <p>Processed main, user, and bypass lists are stored as one verified snapshot at <code>/etc/ruantiblock/cache/lists.tar.gz</code>. Startup restores and applies a compatible snapshot before any background network update.</p>
+  <p>Startup and scheduled updates always try the network first. A successful update replaces the snapshot only when it is missing, corrupt, incompatible, its inputs changed, it is at least seven days old, or its timestamp is in the future. A fresh matching snapshot remains unchanged.</p>
+  <p>A failed network or nftables update restores the previous compatible snapshot regardless of age. Without a valid snapshot, ruantiblock keeps the last working runtime lists.</p>
+  <p>LuCI Log shows <code>list cache updated</code>, <code>blacklist restored from cache</code>, <code>blacklist update failed; using cache</code>, and <code>blacklist updated from network</code>. A normal first boot without a cache emits no restore or warning line.</p>
+
   <h2>Verify</h2>
   <pre>opkg list-installed | grep ruantiblock
 /etc/init.d/ruantiblock status</pre>
 
   <h2>Backup and rollback</h2>
-  <p>Before the first <code>2.1.12-r5</code> upgrade, save the current configuration:</p>
+  <p>Before upgrading, save the current configuration:</p>
   <pre>mkdir -p /tmp/ruantiblock-backup
 cp -a /etc/config/ruantiblock /etc/ruantiblock /tmp/ruantiblock-backup/
 [ -f /etc/crontabs/root ] &amp;&amp; cp -a /etc/crontabs/root /tmp/ruantiblock-backup/</pre>
@@ -80,7 +87,7 @@ cp -a /etc/config/ruantiblock /etc/ruantiblock /tmp/ruantiblock-backup/
   <pre>wget -O /tmp/ruantiblock.ipk "https://vadash.github.io/ruantiblock_openwrt/24.10/ruantiblock_&lt;previous-version&gt;_all.ipk"
 wget -O /tmp/luci-app-ruantiblock.ipk "https://vadash.github.io/ruantiblock_openwrt/24.10/luci-app-ruantiblock_&lt;previous-version&gt;_all.ipk"
 opkg install /tmp/ruantiblock.ipk /tmp/luci-app-ruantiblock.ipk</pre>
-  <p>The first fork release has no earlier fork-built package to restore. Use the configuration backup if you need to return to the upstream installation.</p>
+  <p>If no earlier fork-built package is available, use the configuration backup to return to the upstream installation.</p>
 
   <h2>Source</h2>
   <p><a href="https://github.com/vadash/ruantiblock_openwrt">vadash/ruantiblock_openwrt</a></p>

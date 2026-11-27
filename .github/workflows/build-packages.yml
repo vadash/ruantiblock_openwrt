@@ -27,12 +27,16 @@ jobs:
         run: |
           core_version="$(awk -F= '/^PKG_VERSION:=/ {print $2}' ruantiblock/Makefile)"
           core_release="$(awk -F= '/^PKG_RELEASE:=/ {print $2}' ruantiblock/Makefile)"
-          luci_version="$(awk -F= '/^PKG_VERSION:=/ {print $2}' luci-app-ruantiblock/Makefile)"
-          luci_release="$(awk -F= '/^PKG_RELEASE:=/ {print $2}' luci-app-ruantiblock/Makefile)"
           test -n "$core_version"
           test -n "$core_release"
-          test "$core_version" = "$luci_version"
-          test "$core_release" = "$luci_release"
+          for makefile in ruantiblock/Makefile luci-app-ruantiblock/Makefile ruantiblock-mod-lua/Makefile ruantiblock-mod-py/Makefile; do
+            version="$(awk -F= '/^PKG_VERSION:=/ {print $2}' "$makefile")"
+            release="$(awk -F= '/^PKG_RELEASE:=/ {print $2}' "$makefile")"
+            test -n "$version"
+            test -n "$release"
+            test "$version" = "$core_version"
+            test "$release" = "$core_release"
+          done
           expected_tag="v${core_version}-r${core_release}"
           if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "$expected_tag" ]; then
             echo "Tag $GITHUB_REF_NAME does not match $expected_tag" >&2

@@ -13,6 +13,8 @@
 
 * Интеграция с веб-интерфейсом OpenWrt.
 
+* Постоянный снимок обработанных списков в <code>/etc/ruantiblock/cache/lists.tar.gz</code> восстанавливается при старте и при ошибках сетевого обновления; обновление по-прежнему всегда начинается с сети.
+
 
 Пакеты для OpenWrt 24.10 и инструкции по установке и обновлению: [https://vadash.github.io/ruantiblock_openwrt/](https://vadash.github.io/ruantiblock_openwrt/)
 
