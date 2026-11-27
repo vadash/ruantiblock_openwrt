@@ -104,7 +104,7 @@ jobs:
             cp "$artifact" "$feed_dir/"
           done
           cd "$feed_dir"
-          "$sdk_dir/scripts/ipkg-make-index.sh" . > Packages.manifest
+          MKHASH="$sdk_dir/staging_dir/host/bin/mkhash" "$sdk_dir/scripts/ipkg-make-index.sh" . > Packages.manifest
           grep -vE '^(Maintainer|LicenseFiles|Source|SourceName|Require|SourceDateEpoch)' Packages.manifest > Packages
           gzip -9nc Packages > Packages.gz
           for package in ruantiblock luci-app-ruantiblock luci-i18n-ruantiblock-ru; do
@@ -139,7 +139,7 @@ jobs:
             find "$publish_dir/24.10" -maxdepth 1 -type f -name '*.ipk' -exec cp {} "$feed_dir/" \;
           fi
           cd "$feed_dir"
-          "$sdk_dir/scripts/ipkg-make-index.sh" . > Packages.manifest
+          MKHASH="$sdk_dir/staging_dir/host/bin/mkhash" "$sdk_dir/scripts/ipkg-make-index.sh" . > Packages.manifest
           grep -vE '^(Maintainer|LicenseFiles|Source|SourceName|Require|SourceDateEpoch)' Packages.manifest > Packages
           gzip -9nc Packages > Packages.gz
           mkdir -p "$publish_dir/24.10"
