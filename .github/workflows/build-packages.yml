@@ -1,0 +1,167 @@
+name: Build OpenWrt packages
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+
+concurrency:
+  group: ruantiblock-openwrt-feed
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Validate release versions
+        shell: bash
+        run: |
+          core_version="$(awk -F= '/^PKG_VERSION:=/ {print $2}' ruantiblock/Makefile)"
+          core_release="$(awk -F= '/^PKG_RELEASE:=/ {print $2}' ruantiblock/Makefile)"
+          luci_version="$(awk -F= '/^PKG_VERSION:=/ {print $2}' luci-app-ruantiblock/Makefile)"
+          luci_release="$(awk -F= '/^PKG_RELEASE:=/ {print $2}' luci-app-ruantiblock/Makefile)"
+          test -n "$core_version"
+          test -n "$core_release"
+          test "$core_version" = "$luci_version"
+          test "$core_release" = "$luci_release"
+          expected_tag="v${core_version}-r${core_release}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ] && [ "$GITHUB_REF_NAME" != "$expected_tag" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match $expected_tag" >&2
+            exit 1
+          fi
+
+      - name: Test package lifecycle hooks
+        shell: bash
+        run: python -m unittest discover -s tests -v
+
+      - name: Download OpenWrt SDK
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        run: |
+          base_url=https://downloads.openwrt.org/releases/24.10.0/targets/rockchip/armv8
+          curl --fail --silent --show-error --location --output sha256sums "$base_url/sha256sums"
+          sdk_file="$(awk '/openwrt-sdk-.*\.tar\.zst$/ {print $2; exit}' sha256sums)"
+          test -n "$sdk_file"
+          sdk_hash="$(awk -v file="$sdk_file" '$2 == "*" file {print $1}' sha256sums)"
+          test -n "$sdk_hash"
+          printf '%s  %s\n' "$sdk_hash" "$sdk_file" | sha256sum --check -
+          curl --fail --silent --show-error --location --output "$sdk_file" "$base_url/$sdk_file"
+          mkdir -p sdk
+          tar --zstd -xf "$sdk_file" -C sdk
+
+      - name: Build packages
+        shell: bash
+        run: |
+          sdk_dir="$(find "$RUNNER_TEMP/sdk" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          test -n "$sdk_dir"
+          cd "$sdk_dir"
+          ./scripts/feeds update packages luci
+          ./scripts/feeds install packages luci
+          ln -s "$GITHUB_WORKSPACE/ruantiblock" package/ruantiblock
+          ln -s "$GITHUB_WORKSPACE/luci-app-ruantiblock" package/luci-app-ruantiblock
+          make defconfig
+          make package/ruantiblock/compile package/luci-app-ruantiblock/compile -j"$(nproc)"
+
+      - name: Validate packages and build index
+        shell: bash
+        run: |
+          sdk_dir="$(find "$RUNNER_TEMP/sdk" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          version="$(awk -F= '/^PKG_VERSION:=/ {print $2}' ruantiblock/Makefile)"
+          release="$(awk -F= '/^PKG_RELEASE:=/ {print $2}' ruantiblock/Makefile)"
+          feed_dir="$RUNNER_TEMP/feed/24.10"
+          mkdir -p "$feed_dir"
+          for package in ruantiblock luci-app-ruantiblock luci-i18n-ruantiblock-ru; do
+            artifact="$(find "$sdk_dir/bin/packages" -type f -name "${package}_${version}-r${release}_all.ipk" -print -quit)"
+            if [ -z "$artifact" ]; then
+              echo "Missing built package: $package" >&2
+              exit 1
+            fi
+            cp "$artifact" "$feed_dir/"
+          done
+          cd "$feed_dir"
+          "$sdk_dir/scripts/ipkg-make-index.sh" . > Packages.manifest
+          grep -vE '^(Maintainer|LicenseFiles|Source|SourceName|Require|SourceDateEpoch)' Packages.manifest > Packages
+          gzip -9nc Packages > Packages.gz
+          for package in ruantiblock luci-app-ruantiblock luci-i18n-ruantiblock-ru; do
+            grep -qx "Package: $package" Packages
+          done
+          test "$(awk '/^Architecture:/ {print $2}' Packages | sort -u)" = all
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ruantiblock-openwrt-24.10-${{ github.ref_name }}
+          path: |
+            ${{ runner.temp }}/feed/24.10/
+            docs/index.html
+          if-no-files-found: error
+
+      - name: Publish feed and instructions
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          sdk_dir="$(find "$RUNNER_TEMP/sdk" -mindepth 1 -maxdepth 1 -type d -print -quit)"
+          feed_dir="$RUNNER_TEMP/feed/24.10"
+          publish_dir="$RUNNER_TEMP/published"
+          if git fetch origin gh-pages; then
+            git worktree add -b gh-pages "$publish_dir" origin/gh-pages
+          else
+            mkdir -p "$publish_dir"
+            git -C "$publish_dir" init
+            git -C "$publish_dir" checkout --orphan gh-pages
+          fi
+          if [ -d "$publish_dir/24.10" ]; then
+            find "$publish_dir/24.10" -maxdepth 1 -type f -name '*.ipk' -exec cp {} "$feed_dir/" \;
+          fi
+          cd "$feed_dir"
+          "$sdk_dir/scripts/ipkg-make-index.sh" . > Packages.manifest
+          grep -vE '^(Maintainer|LicenseFiles|Source|SourceName|Require|SourceDateEpoch)' Packages.manifest > Packages
+          gzip -9nc Packages > Packages.gz
+          mkdir -p "$publish_dir/24.10"
+          cp -a "$feed_dir/." "$publish_dir/24.10/"
+          cp "$GITHUB_WORKSPACE/docs/index.html" "$publish_dir/index.html"
+          touch "$publish_dir/.nojekyll"
+          git -C "$publish_dir" config user.name 'github-actions[bot]'
+          git -C "$publish_dir" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$publish_dir" remote get-url origin >/dev/null 2>&1 || \
+            git -C "$publish_dir" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C "$publish_dir" remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git -C "$publish_dir" add .nojekyll index.html 24.10
+          if ! git -C "$publish_dir" diff --cached --quiet; then
+            git -C "$publish_dir" commit -m "Publish OpenWrt 24.10 packages for $GITHUB_REF_NAME"
+            git -C "$publish_dir" push origin HEAD:gh-pages
+          fi
+
+      - name: Enable GitHub Pages
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pages")"
+          case "$status" in
+            404) method=POST ;;
+            200) method=PUT ;;
+            *)
+              echo "GitHub Pages API returned HTTP $status" >&2
+              exit 1
+              ;;
+          esac
+          curl --fail-with-body --silent --show-error --request "$method" \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            --data '{"build_type":"legacy","source":{"branch":"gh-pages","path":"/"}}' \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/pages"
