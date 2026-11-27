@@ -35,11 +35,18 @@ class RuantiblockCacheTests(unittest.TestCase):
         self.copy_runtime()
         self.write_commands()
         self.write_config()
+        real_mv = subprocess.run(
+            [SHELL, "-c", "command -v mv"],
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
         self.environment = os.environ.copy()
         self.environment.update(
-            RUAB_ROOT=self.root.as_posix(),
-            DATA_DIR=(self.root / "var/ruantiblock").as_posix(),
-            DNSMASQ_CONFDIR=(self.root / "var/dnsmasq.d").as_posix(),
+            RUAB_ROOT=self.shell_root,
+            DATA_DIR=f"{self.shell_root}/var/ruantiblock",
+            DNSMASQ_CONFDIR=f"{self.shell_root}/var/dnsmasq.d",
+            REAL_MV=real_mv,
             PATH=(self.root / "bin").as_posix() + os.pathsep + self.environment["PATH"],
         )
         self.write_runtime("old")
@@ -57,6 +64,13 @@ class RuantiblockCacheTests(unittest.TestCase):
     @property
     def cache(self):
         return self.root / "etc/ruantiblock/cache/lists.tar.gz"
+
+    @property
+    def shell_root(self):
+        path = self.root.as_posix()
+        if os.name == "nt":
+            return f"/{path[0].lower()}{path[2:]}"
+        return path
 
     def copy_runtime(self):
         shutil.copy2(MAIN, self.main)
@@ -135,6 +149,19 @@ exit 0
 """,
             "logger": '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$RUAB_ROOT/tmp/logger.log"\n',
             "nslookup": "#!/bin/sh\nexit 0\n",
+            "which": """#!/bin/sh
+case "$1" in
+    nft|wget|nslookup|ip|logger|uci) printf '%s/bin/%s\\n' "$RUAB_ROOT" "$1" ;;
+    *) command -v "$1" ;;
+esac
+""",
+            "mv": """#!/bin/sh
+if [ "${RUAB_FAIL_PROMOTE:-0}" = "1" ] && [ "$1" = "-f" ] && [ "$2" = "$RUAB_ROOT/var/ruantiblock/ruantiblock_user_instances.ip.tmp" ] && [ ! -e "$RUAB_ROOT/tmp/mv_failed" ]; then
+    : > "$RUAB_ROOT/tmp/mv_failed"
+    exit 1
+fi
+exec "$REAL_MV" "$@"
+""",
         }
         for name, content in commands.items():
             path = self.root / "bin" / name
@@ -147,24 +174,26 @@ exit 0
     def write_config(self):
         (self.root / "etc/config/ruantiblock").write_text("config ruantiblock 'config'\n")
         (self.root / "etc/ruantiblock/bypass_entries").write_text("allowed.example\n192.0.2.10\n")
+        root = self.shell_root
         (self.root / "etc/ruantiblock/ruantiblock.conf").write_text(
-            f'''DATA_DIR="{self.root.as_posix()}/var/ruantiblock"
-MODULES_DIR="{self.root.as_posix()}/usr/libexec/ruantiblock"
-RUN_FILES_DIR="{self.root.as_posix()}/var/run"
-DNSMASQ_CONFDIR="{self.root.as_posix()}/var/dnsmasq.d"
-DNSMASQ_RESTART_CMD="{self.root.as_posix()}/etc/init.d/dnsmasq restart"
-HTML_DIR="{self.root.as_posix()}/www"
+            f'''DATA_DIR="{root}/var/ruantiblock"
+MODULES_DIR="{root}/usr/libexec/ruantiblock"
+RUN_FILES_DIR="{root}/var/run"
+DNSMASQ_CONFDIR="{root}/var/dnsmasq.d"
+DNSMASQ_RESTART_CMD="{root}/etc/init.d/dnsmasq restart"
+HTML_DIR="{root}/www"
 ENABLE_LOGGING=1
-DEBUG=0
+PATH="{root}/bin:$PATH"
 ENABLE_HTML_INFO=0
 BLLIST_PRESET=test
-BLLIST_MODULE="{self.root.as_posix()}/usr/libexec/ruantiblock/parser"
+BLLIST_MODULE="{root}/usr/libexec/ruantiblock/parser"
 MODULE_RUN_ATTEMPTS=1
 MODULE_RUN_TIMEOUT=0
 USER_INSTANCES_MAX=5
 NFTSET_CLEAR_SETS=0
 VPN_ROUTE_CHECK=0
-'''
+''',
+            newline="\n",
         )
 
     def write_runtime(self, marker):
@@ -209,21 +238,9 @@ VPN_ROUTE_CHECK=0
             text=True,
         )
 
-    def run_cli(self, action, setup=""):
-        script = setup + '''
-which() {
-    case "$1" in
-        nft|wget|nslookup|ip|logger|uci) printf '%s/bin/%s\\n' "$RUAB_ROOT" "$1" ;;
-        *) command which "$1" ;;
-    esac
-}
-APP="$0"
-ACTION="$1"
-shift
-. "$APP" "$ACTION" "$@"
-'''
+    def run_cli(self, action):
         return subprocess.run(
-            [SHELL, "-c", script, str(self.main), action],
+            [SHELL, str(self.main), action],
             env=self.environment,
             capture_output=True,
             text=True,
@@ -345,17 +362,8 @@ shift
             "user_entries_status",
         )
         before = {name: self.runtime(name).read_bytes() for name in names}
-        setup = '''
-mv() {
-    if [ "$1" = "-f" ] && [ "$2" = "$RUAB_ROOT/var/ruantiblock/ruantiblock_user_instances.ip.tmp" ] && [ ! -e "$RUAB_ROOT/tmp/mv_failed" ]; then
-        : > "$RUAB_ROOT/tmp/mv_failed"
-        return 1
-    fi
-    command mv "$@"
-}
-'''
-
-        failed = self.run_cli("update", setup)
+        self.environment["RUAB_FAIL_PROMOTE"] = "1"
+        failed = self.run_cli("update")
 
         self.assertNotEqual(failed.returncode, 0)
         self.assertFalse(self.cache.exists())
@@ -461,7 +469,7 @@ mv() {
         self.assertEqual(self.run_cli("update").returncode, 0)
         original = self.cache.read_bytes()
         config = self.root / "etc/ruantiblock/ruantiblock.conf"
-        config.write_text(config.read_text() + "BLLIST_MIN_ENTRIES=1\n")
+        config.write_text(config.read_text() + "BLLIST_MIN_ENTRIES=1\n", newline="\n")
         (self.root / "tmp/network.ip").write_text("changed-input-main\n")
 
         updated = self.run_cli("update")
@@ -484,7 +492,7 @@ mv() {
             "update_status",
         )}
         config = self.root / "etc/ruantiblock/ruantiblock.conf"
-        config.write_text(config.read_text() + "BLLIST_MIN_ENTRIES=1\n")
+        config.write_text(config.read_text() + "BLLIST_MIN_ENTRIES=1\n", newline="\n")
         (self.root / "tmp/download_fail").write_text("")
 
         failed = self.run_cli("update")
