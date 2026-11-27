@@ -6,7 +6,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=ruantiblock
 PKG_VERSION:=2.1.12
-PKG_RELEASE:=3
+PKG_RELEASE:=5
 PKG_MAINTAINER:=gSpot <https://github.com/gSpotx2f/ruantiblock_openwrt>
 
 include $(INCLUDE_DIR)/package.mk
@@ -81,9 +81,28 @@ endef
 define Package/$(PKG_NAME)/preinst
 #!/bin/sh
 
-FILE_MAIN_SCRIPT="/usr/bin/ruantiblock"
+PREFIX="$${PREFIX:-}"
+FILE_MAIN_SCRIPT="$${PREFIX}/usr/bin/ruantiblock"
+FILE_INIT_SCRIPT="$${PREFIX}/etc/init.d/ruantiblock"
+STATE_FILE="$${PREFIX}/tmp/ruantiblock.opkg-state"
 
-test -e "$$FILE_MAIN_SCRIPT" && $$FILE_MAIN_SCRIPT destroy
+rm -f "$$STATE_FILE"
+if [ "$$1" = "upgrade" ]; then
+	ENABLED=0
+	RUNNING=0
+	if [ -x "$$FILE_INIT_SCRIPT" ] && "$$FILE_INIT_SCRIPT" enabled >/dev/null 2>&1; then
+		ENABLED=1
+	fi
+	if [ -x "$$FILE_MAIN_SCRIPT" ]; then
+		STATUS="$$("$$FILE_MAIN_SCRIPT" raw-status 2>/dev/null)"
+		case "$$STATUS" in
+			0|3|4) RUNNING=1 ;;
+		esac
+	fi
+	printf '%s\n%s\n' "$$ENABLED" "$$RUNNING" > "$$STATE_FILE"
+fi
+
+[ -x "$$FILE_MAIN_SCRIPT" ] && "$$FILE_MAIN_SCRIPT" destroy
 
 exit 0
 endef
@@ -91,27 +110,50 @@ endef
 define Package/$(PKG_NAME)/prerm
 #!/bin/sh
 
-FILE_INIT_SCRIPT="/etc/init.d/ruantiblock"
-FILE_MAIN_SCRIPT="/usr/bin/ruantiblock"
-CRONTAB_FILE="/etc/crontabs/root"
-DNSMASQ_DATA_FILE_BYPASS="/tmp/dnsmasq*.d/00-ruantiblock_bypass.dnsmasq"
-DNSMASQ_DATA_FILE_USER_INSTANCES="/tmp/dnsmasq*.d/01-ruantiblock_user_instances.dnsmasq"
-DNSMASQ_DATA_FILE="/tmp/dnsmasq*.d/02-ruantiblock.dnsmasq"
-DNSMASQ_DATA_FILE_BYPASS_TMP="${DNSMASQ_DATA_FILE_BYPASS}.tmp"
-DNSMASQ_DATA_FILE_USER_INSTANCES_TMP="${DNSMASQ_DATA_FILE_USER_INSTANCES}.tmp"
-DNSMASQ_DATA_FILE_TMP="${DNSMASQ_DATA_FILE}.tmp"
+PREFIX="$${PREFIX:-}"
+FILE_MAIN_SCRIPT="$${PREFIX}/usr/bin/ruantiblock"
+FILE_INIT_SCRIPT="$${PREFIX}/etc/init.d/ruantiblock"
+CRONTAB_FILE="$${PREFIX}/etc/crontabs/root"
+CRON_INIT_SCRIPT="$${PREFIX}/etc/init.d/cron"
 
-test -e "$$FILE_MAIN_SCRIPT" && $$FILE_MAIN_SCRIPT destroy
-test -e "$$FILE_INIT_SCRIPT" && $$FILE_INIT_SCRIPT disable
-rm -f $$DNSMASQ_DATA_FILE $$DNSMASQ_DATA_FILE_TMP $$DNSMASQ_DATA_FILE_BYPASS $$DNSMASQ_DATA_FILE_BYPASS_TMP $$DNSMASQ_DATA_FILE_USER_INSTANCES $$DNSMASQ_DATA_FILE_USER_INSTANCES_TMP
-
-awk -v FILE_MAIN_SCRIPT="$$FILE_MAIN_SCRIPT" '$$0 !~ FILE_MAIN_SCRIPT {
-	print $$0;
-}' "$$CRONTAB_FILE" > "$${CRONTAB_FILE}.tmp" && mv -f "$${CRONTAB_FILE}.tmp" "$$CRONTAB_FILE"
-/etc/init.d/cron restart
+if [ "$$1" = "remove" ]; then
+	[ -x "$$FILE_MAIN_SCRIPT" ] && "$$FILE_MAIN_SCRIPT" destroy
+	[ -x "$$FILE_INIT_SCRIPT" ] && "$$FILE_INIT_SCRIPT" disable
+	if [ -f "$$CRONTAB_FILE" ]; then
+		awk -v FILE_MAIN_SCRIPT="/usr/bin/ruantiblock" '$$0 !~ FILE_MAIN_SCRIPT {
+			print $$0;
+		}' "$$CRONTAB_FILE" > "$${CRONTAB_FILE}.tmp" && mv -f "$${CRONTAB_FILE}.tmp" "$$CRONTAB_FILE"
+	fi
+	[ -x "$$CRON_INIT_SCRIPT" ] && "$$CRON_INIT_SCRIPT" restart
+fi
 
 exit 0
+endef
 
+define Package/$(PKG_NAME)/postinst
+#!/bin/sh
+
+PREFIX="$${PREFIX:-}"
+FILE_INIT_SCRIPT="$${PREFIX}/etc/init.d/ruantiblock"
+STATE_FILE="$${PREFIX}/tmp/ruantiblock.opkg-state"
+
+if [ "$$1" = "configure" ] && [ -f "$$STATE_FILE" ]; then
+	ENABLED=0
+	RUNNING=0
+	{
+		read -r ENABLED
+		read -r RUNNING
+	} < "$$STATE_FILE"
+	if [ "$$ENABLED" = "1" ] && [ -x "$$FILE_INIT_SCRIPT" ]; then
+		"$$FILE_INIT_SCRIPT" enable
+	fi
+	if [ "$$RUNNING" = "1" ] && [ -x "$$FILE_INIT_SCRIPT" ]; then
+		"$$FILE_INIT_SCRIPT" start
+	fi
+fi
+rm -f "$$STATE_FILE"
+
+exit 0
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
