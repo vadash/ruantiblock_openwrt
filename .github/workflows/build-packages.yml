@@ -43,6 +43,13 @@ jobs:
         shell: bash
         run: python -m unittest discover -s tests -v
 
+      - name: Check package shell syntax
+        shell: bash
+        run: |
+          find ruantiblock/files/usr/bin ruantiblock/files/usr/libexec/ruantiblock \
+            ruantiblock/files/etc/init.d ruantiblock/files/etc/hotplug.d/iface \
+            -type f -print0 | xargs -0 -n 1 sh -n
+
       - name: Download OpenWrt SDK
         shell: bash
         working-directory: ${{ runner.temp }}
@@ -53,8 +60,8 @@ jobs:
           test -n "$sdk_file"
           sdk_hash="$(awk -v file="$sdk_file" '$2 == "*" file {print $1}' sha256sums)"
           test -n "$sdk_hash"
-          printf '%s  %s\n' "$sdk_hash" "$sdk_file" | sha256sum --check -
           curl --fail --silent --show-error --location --output "$sdk_file" "$base_url/$sdk_file"
+          printf '%s  %s\n' "$sdk_hash" "$sdk_file" | sha256sum --check -
           mkdir -p sdk
           tar --zstd -xf "$sdk_file" -C sdk
 
