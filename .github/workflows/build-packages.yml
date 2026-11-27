@@ -83,7 +83,7 @@ jobs:
           ln -s "$GITHUB_WORKSPACE/ruantiblock" package/ruantiblock
           ln -s "$GITHUB_WORKSPACE/luci-app-ruantiblock" package/luci-app-ruantiblock
           make defconfig
-          make package/ruantiblock/compile package/luci-app-ruantiblock/compile -j"$(nproc)"
+          make package/ruantiblock/compile package/luci-app-ruantiblock/compile package/luci-i18n-ruantiblock-ru/compile -j"$(nproc)"
 
       - name: Validate packages and build index
         shell: bash

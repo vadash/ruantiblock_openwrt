@@ -7,6 +7,7 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=luci-app-ruantiblock
 PKG_VERSION:=2.1.12
 PKG_RELEASE:=5
+PKG_PO_VERSION:=$(PKG_VERSION)-r$(PKG_RELEASE)
 PKG_MAINTAINER:=gSpot <https://github.com/gSpotx2f/ruantiblock_openwrt>
 LUCI_TITLE:=LuCI support for ruantiblock
 LUCI_DEPENDS:=+ruantiblock

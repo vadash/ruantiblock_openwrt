@@ -176,6 +176,12 @@ class PackageVersionTests(unittest.TestCase):
                 self.assertEqual(version.group(1), "2.1.12")
                 self.assertEqual(release.group(1), "5")
 
+    def test_translation_version_matches_feed_release(self):
+        content = (ROOT / "luci-app-ruantiblock/Makefile").read_text()
+        po_version = re.search(r"^PKG_PO_VERSION:=(.+)$", content, re.MULTILINE)
+        self.assertIsNotNone(po_version)
+        self.assertEqual(po_version.group(1), "$(PKG_VERSION)-r$(PKG_RELEASE)")
+
 
 if __name__ == "__main__":
     unittest.main()
