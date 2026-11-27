@@ -1,0 +1,375 @@
+#!/bin/sh
+#
+########################################################################
+#
+# Ruantiblock
+# (с) 2025 gSpot (https://github.com/gSpotx2f/ruantiblock_openwrt)
+#
+########################################################################
+
+RUAB_ROOT="${RUAB_ROOT:-}"
+CACHE_DIR="${RUAB_ROOT}/etc/ruantiblock/cache"
+CACHE_FILE="${CACHE_DIR}/lists.tar.gz"
+DATA_DIR="${DATA_DIR:-${RUAB_ROOT}/var/ruantiblock}"
+DNSMASQ_CONFDIR="${DNSMASQ_CONFDIR:-${RUAB_ROOT}/var/dnsmasq.d}"
+IP_DATA_FILE="${IP_DATA_FILE:-${DATA_DIR}/ruantiblock.ip}"
+IP_DATA_FILE_BYPASS="${IP_DATA_FILE_BYPASS:-${DATA_DIR}/ruantiblock_bypass.ip}"
+IP_DATA_FILE_USER_INSTANCES="${IP_DATA_FILE_USER_INSTANCES:-${DATA_DIR}/ruantiblock_user_instances.ip}"
+DNSMASQ_DATA_FILE_BYPASS="${DNSMASQ_DATA_FILE_BYPASS:-${DNSMASQ_CONFDIR}/00-ruantiblock_bypass.dnsmasq}"
+DNSMASQ_DATA_FILE_USER_INSTANCES="${DNSMASQ_DATA_FILE_USER_INSTANCES:-${DNSMASQ_CONFDIR}/01-ruantiblock_user_instances.dnsmasq}"
+DNSMASQ_DATA_FILE="${DNSMASQ_DATA_FILE:-${DNSMASQ_CONFDIR}/02-ruantiblock.dnsmasq}"
+UPDATE_STATUS_FILE="${UPDATE_STATUS_FILE:-${DATA_DIR}/update_status}"
+USER_ENTRIES_STATUS_FILE="${USER_ENTRIES_STATUS_FILE:-${DATA_DIR}/user_entries_status}"
+PAYLOAD_KEYS="ruantiblock.ip ruantiblock_bypass.ip ruantiblock_user_instances.ip 00-ruantiblock_bypass.dnsmasq 01-ruantiblock_user_instances.dnsmasq 02-ruantiblock.dnsmasq update_status user_entries_status"
+
+warn() {
+    echo " Warning: list cache $1" >&2
+}
+
+payload_member() {
+    case "$1" in
+        ruantiblock.ip|ruantiblock_bypass.ip|ruantiblock_user_instances.ip)
+            printf 'data/%s' "$1"
+        ;;
+        *.dnsmasq)
+            printf 'dnsmasq/%s' "$1"
+        ;;
+        *)
+            printf 'status/%s' "$1"
+        ;;
+    esac
+}
+
+payload_path() {
+    case "$1" in
+        ruantiblock.ip) printf '%s' "$IP_DATA_FILE" ;;
+        ruantiblock_bypass.ip) printf '%s' "$IP_DATA_FILE_BYPASS" ;;
+        ruantiblock_user_instances.ip) printf '%s' "$IP_DATA_FILE_USER_INSTANCES" ;;
+        00-ruantiblock_bypass.dnsmasq) printf '%s' "$DNSMASQ_DATA_FILE_BYPASS" ;;
+        01-ruantiblock_user_instances.dnsmasq) printf '%s' "$DNSMASQ_DATA_FILE_USER_INSTANCES" ;;
+        02-ruantiblock.dnsmasq) printf '%s' "$DNSMASQ_DATA_FILE" ;;
+        update_status) printf '%s' "$UPDATE_STATUS_FILE" ;;
+        user_entries_status) printf '%s' "$USER_ENTRIES_STATUS_FILE" ;;
+    esac
+}
+
+input_paths() {
+    local _directory
+    printf '%s\n' "${RUAB_ROOT}/etc/config/ruantiblock" "${RUAB_ROOT}/usr/bin/ruantiblock"
+    for _directory in "${RUAB_ROOT}/etc/ruantiblock" "${RUAB_ROOT}/usr/share/ruantiblock" "${RUAB_ROOT}/usr/libexec/ruantiblock"
+    do
+        if [ -d "$_directory" ]; then
+            find "$_directory" -path "$CACHE_DIR" -prune -o -type f -print 2> /dev/null
+        fi
+    done
+}
+
+input_fingerprint() {
+    local _tmp _file _name _hash
+    _tmp=$(mktemp "${TMPDIR:-/tmp}/ruab-list-inputs.XXXXXX") || return 1
+    if ! input_paths | LC_ALL=C sort | while IFS= read -r _file; do
+        [ -f "$_file" ] || continue
+        _name=${_file#"$RUAB_ROOT"}
+        _hash=$(sha256sum < "$_file") || exit 1
+        printf '%s %s\n' "$_hash" "$_name"
+    done > "$_tmp"; then
+        rm -f "$_tmp"
+        return 1
+    fi
+    _hash=$(sha256sum < "$_tmp") || _hash=""
+    rm -f "$_tmp"
+    [ -n "$_hash" ] || return 1
+    printf '%s' "${_hash%% *}"
+}
+
+file_hash() {
+    sha256sum < "$1" | awk '{print $1}'
+}
+
+capture_archive() {
+    local _archive="$1" _fingerprint="${2:-}" _stage _verify_dir _key _member _source _hash
+    if [ -z "$_fingerprint" ]; then
+        _fingerprint=$(input_fingerprint) || {
+            warn "cannot fingerprint inputs"
+            return 1
+        }
+    fi
+    _stage=$(mktemp -d "${TMPDIR:-/tmp}/ruab-list-snapshot.XXXXXX") || {
+        warn "cannot create snapshot staging directory"
+        return 1
+    }
+    mkdir -p "$_stage/data" "$_stage/dnsmasq" "$_stage/status"
+    printf 'format=1\nfingerprint=%s\n' "$_fingerprint" > "$_stage/manifest"
+    for _key in $PAYLOAD_KEYS
+    do
+        _member=$(payload_member "$_key")
+        _source=$(payload_path "$_key")
+        if [ -f "$_source" ]; then
+            cp "$_source" "$_stage/$_member" || {
+                rm -rf "$_stage"
+                warn "cannot capture $_source"
+                return 1
+            }
+        else
+            : > "$_stage/$_member"
+        fi
+        _hash=$(file_hash "$_stage/$_member") || {
+            rm -rf "$_stage"
+            warn "cannot checksum $_member"
+            return 1
+        }
+        printf '%s=%s\n' "$_member" "$_hash" >> "$_stage/manifest"
+    done
+    set -- manifest
+    for _key in $PAYLOAD_KEYS
+    do
+        set -- "$@" "$(payload_member "$_key")"
+    done
+    if ! (cd "$(dirname "$_archive")" && tar -czf "$(basename "$_archive")" -C "$_stage" "$@"); then
+        rm -rf "$_stage"
+        warn "cannot write snapshot archive"
+        return 1
+    fi
+    rm -rf "$_stage"
+    _verify_dir=$(mktemp -d "${TMPDIR:-/tmp}/ruab-list-verify.XXXXXX") || {
+        warn "cannot create archive verification directory"
+        return 1
+    }
+    if ! validate_archive "$_archive" "$_verify_dir" "$_fingerprint"; then
+        rm -rf "$_verify_dir"
+        warn "snapshot archive verification failed"
+        return 1
+    fi
+    rm -rf "$_verify_dir"
+}
+
+validate_archive() {
+    local _archive="$1" _directory="$2" _fingerprint="$3" _key _member _hash _value
+    local _format="" _cached_fingerprint="" _seen=""
+    if [ ! -f "$_archive" ] || [ ! -r "$_archive" ]; then
+        warn "snapshot is unreadable"
+        return 2
+    fi
+    if ! gzip -t "$_archive" 2> /dev/null || ! (cd "$(dirname "$_archive")" && tar -tzf "$(basename "$_archive")" > "$_directory/members" 2> /dev/null); then
+        warn "snapshot is corrupt"
+        return 2
+    fi
+    printf '%s\n' manifest > "$_directory/expected"
+    for _key in $PAYLOAD_KEYS
+    do
+        printf '%s\n' "$(payload_member "$_key")" >> "$_directory/expected"
+    done
+    LC_ALL=C sort "$_directory/expected" > "$_directory/expected.sorted"
+    LC_ALL=C sort "$_directory/members" > "$_directory/members.sorted"
+    if ! cmp -s "$_directory/expected.sorted" "$_directory/members.sorted"; then
+        warn "snapshot members are incompatible"
+        return 2
+    fi
+    if ! (cd "$(dirname "$_archive")" && tar -xzf "$(basename "$_archive")" -C "$_directory" 2> /dev/null); then
+        warn "snapshot cannot be extracted"
+        return 2
+    fi
+    [ -f "$_directory/manifest" ] && [ ! -L "$_directory/manifest" ] || {
+        warn "snapshot manifest is not a regular file"
+        return 2
+    }
+    while IFS='=' read -r _key _value
+    do
+        case "$_key" in
+            format)
+                [ -z "$_format" ] || { warn "snapshot manifest is invalid"; return 2; }
+                _format=$_value
+            ;;
+            fingerprint)
+                [ -z "$_cached_fingerprint" ] || { warn "snapshot manifest is invalid"; return 2; }
+                _cached_fingerprint=$_value
+            ;;
+            data/*|dnsmasq/*|status/*)
+                _member=$(payload_member "${_key#*/}")
+                [ "$_key" = "$_member" ] || { warn "snapshot manifest has an unknown member"; return 2; }
+                case " $_seen " in
+                    *" $_key "*) warn "snapshot manifest has a duplicate member"; return 2 ;;
+                esac
+                _seen="$_seen $_key"
+                [ ${#_value} -eq 64 ] || { warn "snapshot manifest checksum is invalid"; return 2; }
+                case "$_value" in *[!0-9a-f]*) warn "snapshot manifest checksum is invalid"; return 2 ;; esac
+            ;;
+            *) warn "snapshot manifest is invalid"; return 2 ;;
+        esac
+    done < "$_directory/manifest"
+    [ "$_format" = "1" ] || {
+        warn "snapshot format is incompatible"
+        return 2
+    }
+    for _key in $PAYLOAD_KEYS
+    do
+        _member=$(payload_member "$_key")
+        case " $_seen " in
+            *" $_member "*) ;;
+            *) warn "snapshot manifest is incomplete"; return 2 ;;
+        esac
+        [ -f "$_directory/$_member" ] && [ ! -L "$_directory/$_member" ] || { warn "snapshot member is not a regular file"; return 2; }
+        _hash=$(awk -F= -v member="$_member" '$1 == member {print $2}' "$_directory/manifest")
+        [ "$(file_hash "$_directory/$_member")" = "$_hash" ] || {
+            warn "snapshot member checksum failed"
+            return 2
+        }
+    done
+    [ ${#_cached_fingerprint} -eq 64 ] || { warn "snapshot fingerprint is invalid"; return 2; }
+    case "$_cached_fingerprint" in *[!0-9a-f]*) warn "snapshot fingerprint is invalid"; return 2 ;; esac
+    [ "$_cached_fingerprint" = "$_fingerprint" ] || {
+        warn "snapshot inputs are incompatible"
+        return 3
+    }
+}
+
+cache_replacement_needed() {
+    local _mtime _now
+    [ -e "$CACHE_FILE" ] || return 0
+    _mtime=$(stat -c %Y "$CACHE_FILE" 2> /dev/null) || {
+        warn "cannot read snapshot timestamp"
+        return 0
+    }
+    _now=$(date +%s)
+    [ "$_mtime" -gt "$_now" ] && return 0
+    [ $((_now - _mtime)) -ge 604800 ]
+}
+
+save_cache() {
+    [ ! -d "$CACHE_FILE" ] || {
+        warn "cache path is not a regular file"
+        return 1
+    }
+    local _archive _fingerprint _directory _return_code
+    _fingerprint=$(input_fingerprint) || {
+        warn "cannot fingerprint inputs"
+        return 1
+    }
+    if [ -e "$CACHE_FILE" ]; then
+        _directory=$(mktemp -d "${TMPDIR:-/tmp}/ruab-list-validate.XXXXXX") || {
+            warn "cannot create validation directory"
+            return 1
+        }
+        validate_archive "$CACHE_FILE" "$_directory" "$_fingerprint"
+        _return_code=$?
+        rm -rf "$_directory"
+        if [ $_return_code -eq 0 ] && ! cache_replacement_needed; then
+            printf 'unchanged\n'
+            return 0
+        fi
+    fi
+    mkdir -p "$CACHE_DIR" || {
+        warn "cache directory is unwritable"
+        return 1
+    }
+    _archive=$(mktemp "${CACHE_DIR}/.lists.tar.gz.XXXXXX") || {
+        warn "cache directory is unwritable"
+        return 1
+    }
+    if capture_archive "$_archive" "$_fingerprint"; then
+        if mv -f "$_archive" "$CACHE_FILE"; then
+            printf 'updated\n'
+            return 0
+        fi
+        warn "cannot publish snapshot"
+    fi
+    rm -f "$_archive"
+    return 1
+}
+
+restore_cache() {
+    local _directory _fingerprint _key _source _target _backup _suffix=".rollback.$$"
+    local _return_code=0 _staged=0 _rollback_code=0
+    [ -e "$CACHE_FILE" ] || return 1
+    _fingerprint=$(input_fingerprint) || {
+        warn "cannot fingerprint inputs"
+        return 2
+    }
+    _directory=$(mktemp -d "${TMPDIR:-/tmp}/ruab-list-restore.XXXXXX") || {
+        warn "cannot create restore directory"
+        return 2
+    }
+    validate_archive "$CACHE_FILE" "$_directory" "$_fingerprint"
+    _return_code=$?
+    if [ $_return_code -eq 0 ]; then
+        for _key in $PAYLOAD_KEYS
+        do
+            _target=$(payload_path "$_key")
+            _backup="${_target}${_suffix}"
+            mkdir -p "$(dirname "$_target")" || _return_code=4
+            if [ -e "$_target" ] && ! cp -p "$_target" "$_backup"; then
+                _return_code=4
+            fi
+            [ $_return_code -eq 0 ] || break
+        done
+    fi
+    if [ $_return_code -eq 0 ]; then
+        for _key in $PAYLOAD_KEYS
+        do
+            _source="$_directory/$(payload_member "$_key")"
+            _target=$(payload_path "$_key")
+            cp "$_source" "${_target}.tmp" || _return_code=4
+            [ $_return_code -eq 0 ] || break
+        done
+    fi
+    if [ $_return_code -eq 0 ]; then
+        _staged=1
+        for _key in $PAYLOAD_KEYS
+        do
+            _target=$(payload_path "$_key")
+            mv -f "${_target}.tmp" "$_target" || _return_code=4
+        done
+    fi
+    if [ $_return_code -ne 0 ]; then
+        if [ $_staged -eq 1 ]; then
+            for _key in $PAYLOAD_KEYS
+            do
+                _target=$(payload_path "$_key")
+                _backup="${_target}${_suffix}"
+                if [ -e "$_backup" ]; then
+                    mv -f "$_backup" "$_target" || _rollback_code=1
+                else
+                    rm -f "$_target" || _rollback_code=1
+                fi
+            done
+        fi
+        for _key in $PAYLOAD_KEYS
+        do
+            _target=$(payload_path "$_key")
+            rm -f "${_target}.tmp"
+            [ $_rollback_code -eq 0 ] && rm -f "${_target}${_suffix}"
+        done
+        warn "cannot restore runtime lists"
+    else
+        for _key in $PAYLOAD_KEYS
+        do
+            _target=$(payload_path "$_key")
+            rm -f "${_target}${_suffix}"
+        done
+    fi
+    rm -rf "$_directory"
+    return $_return_code
+}
+
+case "${1:-}" in
+    capture)
+        _archive=$(mktemp "${TMPDIR:-/tmp}/ruab-list-capture.XXXXXX") || exit 1
+        capture_archive "$_archive" || {
+            rm -f "$_archive"
+            exit 1
+        }
+        printf '%s\n' "$_archive"
+    ;;
+    save)
+        save_cache
+        exit $?
+    ;;
+    restore)
+        restore_cache
+        exit $?
+    ;;
+    *)
+        echo "Usage: ${0##*/} capture|save|restore" >&2
+        exit 1
+    ;;
+esac

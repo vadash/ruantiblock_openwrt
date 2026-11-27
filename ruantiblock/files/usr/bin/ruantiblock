@@ -15,19 +15,20 @@ export LANGUAGE="en"
 
 #################### Platform-specific settings ########################
 
-CONFIG_DIR="/etc/${NAME}"
+RUAB_ROOT="${RUAB_ROOT:-}"
+export RUAB_ROOT
+CONFIG_DIR="${RUAB_ROOT}/etc/${NAME}"
 CONFIG_FILE="${CONFIG_DIR}/${NAME}.conf"
-SCRIPTS_DIR="/usr/share/${NAME}"
-export DATA_DIR="/var/${NAME}"
-export MODULES_DIR="/usr/libexec/${NAME}"
-RUN_FILES_DIR="/var/run"
+SCRIPTS_DIR="${RUAB_ROOT}/usr/share/${NAME}"
+export DATA_DIR="${RUAB_ROOT}/var/${NAME}"
+export MODULES_DIR="${RUAB_ROOT}/usr/libexec/${NAME}"
+RUN_FILES_DIR="${RUAB_ROOT}/var/run"
 ### Директория доп. конфигов dnsmasq
-export DNSMASQ_CONFDIR="/var/dnsmasq.d"
+export DNSMASQ_CONFDIR="${RUAB_ROOT}/var/dnsmasq.d"
 ### Команда для перезапуска dnsmasq
-export DNSMASQ_RESTART_CMD="/etc/init.d/dnsmasq restart"
+export DNSMASQ_RESTART_CMD="${RUAB_ROOT}/etc/init.d/dnsmasq restart"
 ### Директория для html-страницы статуса (не используется в OpenWrt)
-export HTML_DIR="/www"
-
+export HTML_DIR="${RUAB_ROOT}/www"
 ########################## Default Settings ############################
 
 ### Режим обработки пакетов в правилах nftables (1 - Tor, 2 - VPN, 3 - Прозрачный прокси)
@@ -75,7 +76,7 @@ export ENABLE_LOGGING=1
 ### Вывод дополнительных сообщений в лог (0 - выкл, 1, 2)
 export DEBUG=0
 ### Файл для вывода некоторых отладочных сообщений
-export DEBUG_FILE="/tmp/${NAME}.debug"
+export DEBUG_FILE="${RUAB_ROOT}/tmp/${NAME}.debug"
 ### Html-страница с инфо о текущем статусе (0 - выкл, 1 - вкл) (не используется в OpenWrt)
 export ENABLE_HTML_INFO=0
 ### Максимальное кол-во элементов списка nftables
@@ -120,7 +121,7 @@ export ENABLE_FPROXY=0
 export FPROXY_LIST=""
 ### Список приватных сетей для режима полного прокси, через пробел
 export FPROXY_PRIVATE_NETS="192.168.0.0/16 172.16.0.0/12 10.0.0.0/8 100.64.0.0/10 169.254.0.0/16"
-### Режим безопасного обновления блэклиста. Скачивание во временный файл и затем замена основного. Увеличивает потребление памяти (0 - выкл, 1 - вкл)
+### Staging is mandatory for snapshot rollback; the value is forced after configuration load
 export ENABLE_TMP_DOWNLOADS=0
 ### Скачивать блэклисты через прокси
 export ENABLE_BLLIST_PROXY=0
@@ -260,7 +261,7 @@ if [ $? -ne 0 ]; then
 fi
 export IP_CMD
 USER_ENTRIES_PARSER="${MODULES_DIR}/ruab_parser_user_entries"
-ROUTE_CHECK_EXEC="${MODULES_DIR}/ruab_route_check"
+export LIST_CACHE_EXEC="${MODULES_DIR}/ruab_list_cache"
 export IP_DATA_FILE="${DATA_DIR}/${NAME}.ip"
 export IP_DATA_FILE_BYPASS="${DATA_DIR}/${NAME}_bypass.ip"
 export IP_DATA_FILE_USER_INSTANCES="${DATA_DIR}/${NAME}_user_instances.ip"
@@ -300,8 +301,10 @@ TOKEN_FILE="${RUN_FILES_DIR}/${NAME}.token"
 export HTML_OUTPUT="${HTML_DIR}/${NAME}.html"
 NFT_FUNCTIONS="${SCRIPTS_DIR}/nft_functions"
 INFO_OUTPUT_FUNCTION="${SCRIPTS_DIR}/info_output"
+export IP_DATA_FILE_BYPASS_TMP="${IP_DATA_FILE_BYPASS}.tmp"
 export IP_DATA_FILE_TMP="${IP_DATA_FILE}.tmp"
 export IP_DATA_FILE_USER_INSTANCES_TMP="${IP_DATA_FILE_USER_INSTANCES}.tmp"
+export DNSMASQ_DATA_FILE_BYPASS_TMP="${DNSMASQ_DATA_FILE_BYPASS}.tmp"
 export DNSMASQ_DATA_FILE_USER_INSTANCES_TMP="${DNSMASQ_DATA_FILE_USER_INSTANCES}.tmp"
 export DNSMASQ_DATA_FILE_TMP="${DNSMASQ_DATA_FILE}.tmp"
 export UPDATE_STATUS_FILE_TMP="${UPDATE_STATUS_FILE}.tmp"
@@ -382,46 +385,22 @@ Download() {
 }
 
 DownloadNativeBlacklist() {
-    local _ip_data_file _dnsmasq_data_file _update_status_file _return_code=0
-    if [ "$ENABLE_TMP_DOWNLOADS" = "1" ]; then
-        _ip_data_file="$IP_DATA_FILE_TMP"
-        _dnsmasq_data_file="$DNSMASQ_DATA_FILE_TMP"
-        _update_status_file="$UPDATE_STATUS_FILE_TMP"
-        rm -f "$_ip_data_file" "$_dnsmasq_data_file" "$_update_status_file"
-    else
-        _ip_data_file="$IP_DATA_FILE"
-        _dnsmasq_data_file="$DNSMASQ_DATA_FILE"
-        _update_status_file="$UPDATE_STATUS_FILE"
-    fi
+    local _return_code=0
+    rm -f "$IP_DATA_FILE_TMP" "$DNSMASQ_DATA_FILE_TMP" "$UPDATE_STATUS_FILE_TMP"
     if [ -n "$DL_IPSET_URL" -a -n "$DL_DMASK_URL" -a -n "$DL_STAT_URL" ]; then
-        Download "$_ip_data_file" "$DL_IPSET_URL"
-        if [ $? -ne 0 ]; then
-            _return_code=1
-        else
-            Download "$_dnsmasq_data_file" "$DL_DMASK_URL"
-            if [ $? -ne 0 ]; then
-                _return_code=1
-            else
-                Download "$_update_status_file" "$DL_STAT_URL"
-                if [ $? -ne 0 ]; then
-                    _return_code=1
-                fi
-            fi
+        Download "$IP_DATA_FILE_TMP" "$DL_IPSET_URL" || _return_code=1
+        if [ $_return_code -eq 0 ]; then
+            Download "$DNSMASQ_DATA_FILE_TMP" "$DL_DMASK_URL" || _return_code=1
+        fi
+        if [ $_return_code -eq 0 ]; then
+            Download "$UPDATE_STATUS_FILE_TMP" "$DL_STAT_URL" || _return_code=1
         fi
     else
         echo " Native blacklist configuration error (${1})" >&2
         MakeLogRecord "err" "Native blacklist configuration error (${1})"
-        exit 1
+        _return_code=1
     fi
-    if [ "$ENABLE_TMP_DOWNLOADS" = "1" ]; then
-        if [ $_return_code -eq 0 ]; then
-            mv -f "$_ip_data_file" "$IP_DATA_FILE"
-            mv -f "$_dnsmasq_data_file" "$DNSMASQ_DATA_FILE"
-            mv -f "$_update_status_file" "$UPDATE_STATUS_FILE"
-        else
-            rm -f "$_ip_data_file" "$_dnsmasq_data_file" "$_update_status_file"
-        fi
-    fi
+    [ $_return_code -eq 0 ] || rm -f "$IP_DATA_FILE_TMP" "$DNSMASQ_DATA_FILE_TMP" "$UPDATE_STATUS_FILE_TMP"
     return $_return_code
 }
 
@@ -567,16 +546,22 @@ UpdateBllistProxySet() {
 }
 
 UpdateBllistSets() {
-    local _return_code=0
-    if [ -f "$IP_DATA_FILE" -a -f "$IP_DATA_FILE_USER_INSTANCES" -a -f "$IP_DATA_FILE_BYPASS" ]; then
+    local _arg="$1" _return_code=0
+    local _ip_data_file="$IP_DATA_FILE" _ip_data_file_user_instances="$IP_DATA_FILE_USER_INSTANCES" _ip_data_file_bypass="$IP_DATA_FILE_BYPASS"
+    if [ "$_arg" = "staged" ]; then
+        _ip_data_file="$IP_DATA_FILE_TMP"
+        _ip_data_file_user_instances="$IP_DATA_FILE_USER_INSTANCES_TMP"
+        _ip_data_file_bypass="$IP_DATA_FILE_BYPASS_TMP"
+    fi
+    if [ -f "$_ip_data_file" -a -f "$_ip_data_file_user_instances" -a -f "$_ip_data_file_bypass" ]; then
         echo " Updating nft sets..."
-        $NFT_CMD -f "$IP_DATA_FILE_BYPASS"
+        $NFT_CMD -f "$_ip_data_file_bypass"
         _return_code=$?
         if [ $_return_code -eq 0 ]; then
-            $NFT_CMD -f "$IP_DATA_FILE_USER_INSTANCES"
+            $NFT_CMD -f "$_ip_data_file_user_instances"
             _return_code=$?
             if [ $_return_code -eq 0 ]; then
-                $NFT_CMD -f "$IP_DATA_FILE"
+                $NFT_CMD -f "$_ip_data_file"
                 _return_code=$?
             fi
         fi
@@ -586,6 +571,10 @@ UpdateBllistSets() {
             echo " Error! Nft set wasn't updated" >&2
             MakeLogRecord "err" "Error! Nft set wasn't updated"
         fi
+    elif [ "$_arg" = "staged" ]; then
+        echo " Error! Staged nft files are incomplete" >&2
+        MakeLogRecord "err" "Error! Staged nft files are incomplete"
+        _return_code=1
     fi
     return $_return_code
 }
@@ -728,6 +717,65 @@ ClearDataFiles() {
     fi
 }
 
+ClearStagedFiles() {
+    rm -f "$IP_DATA_FILE_TMP" "$IP_DATA_FILE_USER_INSTANCES_TMP" "$IP_DATA_FILE_BYPASS_TMP" \
+        "$DNSMASQ_DATA_FILE_TMP" "$DNSMASQ_DATA_FILE_USER_INSTANCES_TMP" "$DNSMASQ_DATA_FILE_BYPASS_TMP" \
+        "$UPDATE_STATUS_FILE_TMP" "$USER_ENTRIES_STATUS_FILE_TMP"
+}
+
+RollbackPromotedFiles() {
+    local _suffix="$1" _target _backup
+    for _target in "$IP_DATA_FILE" "$IP_DATA_FILE_USER_INSTANCES" "$IP_DATA_FILE_BYPASS" \
+        "$DNSMASQ_DATA_FILE" "$DNSMASQ_DATA_FILE_USER_INSTANCES" "$DNSMASQ_DATA_FILE_BYPASS" \
+        "$UPDATE_STATUS_FILE" "$USER_ENTRIES_STATUS_FILE"
+    do
+        _backup="${_target}${_suffix}"
+        if [ -e "$_backup" ]; then
+            mv -f "$_backup" "$_target" || return 1
+        else
+            rm -f "$_target" || return 1
+        fi
+    done
+}
+
+PromoteStagedFiles() {
+    local _file _target _backup _suffix=".rollback.$$" _return_code=0
+    for _file in "$IP_DATA_FILE_TMP" "$IP_DATA_FILE_USER_INSTANCES_TMP" "$IP_DATA_FILE_BYPASS_TMP" \
+        "$DNSMASQ_DATA_FILE_TMP" "$DNSMASQ_DATA_FILE_USER_INSTANCES_TMP" "$DNSMASQ_DATA_FILE_BYPASS_TMP" \
+        "$UPDATE_STATUS_FILE_TMP" "$USER_ENTRIES_STATUS_FILE_TMP"
+    do
+        [ -f "$_file" ] || return 1
+    done
+    for _target in "$IP_DATA_FILE" "$IP_DATA_FILE_USER_INSTANCES" "$IP_DATA_FILE_BYPASS" \
+        "$DNSMASQ_DATA_FILE" "$DNSMASQ_DATA_FILE_USER_INSTANCES" "$DNSMASQ_DATA_FILE_BYPASS" \
+        "$UPDATE_STATUS_FILE" "$USER_ENTRIES_STATUS_FILE"
+    do
+        _backup="${_target}${_suffix}"
+        if [ -e "$_target" ] && ! cp -p "$_target" "$_backup"; then
+            rm -f "$IP_DATA_FILE${_suffix}" "$IP_DATA_FILE_USER_INSTANCES${_suffix}" "$IP_DATA_FILE_BYPASS${_suffix}" \
+                "$DNSMASQ_DATA_FILE${_suffix}" "$DNSMASQ_DATA_FILE_USER_INSTANCES${_suffix}" "$DNSMASQ_DATA_FILE_BYPASS${_suffix}" \
+                "$UPDATE_STATUS_FILE${_suffix}" "$USER_ENTRIES_STATUS_FILE${_suffix}"
+            return 1
+        fi
+    done
+    mv -f "$IP_DATA_FILE_TMP" "$IP_DATA_FILE" || _return_code=1
+    mv -f "$IP_DATA_FILE_USER_INSTANCES_TMP" "$IP_DATA_FILE_USER_INSTANCES" || _return_code=1
+    mv -f "$IP_DATA_FILE_BYPASS_TMP" "$IP_DATA_FILE_BYPASS" || _return_code=1
+    mv -f "$DNSMASQ_DATA_FILE_TMP" "$DNSMASQ_DATA_FILE" || _return_code=1
+    mv -f "$DNSMASQ_DATA_FILE_USER_INSTANCES_TMP" "$DNSMASQ_DATA_FILE_USER_INSTANCES" || _return_code=1
+    mv -f "$DNSMASQ_DATA_FILE_BYPASS_TMP" "$DNSMASQ_DATA_FILE_BYPASS" || _return_code=1
+    mv -f "$UPDATE_STATUS_FILE_TMP" "$UPDATE_STATUS_FILE" || _return_code=1
+    mv -f "$USER_ENTRIES_STATUS_FILE_TMP" "$USER_ENTRIES_STATUS_FILE" || _return_code=1
+    if [ $_return_code -ne 0 ]; then
+        RollbackPromotedFiles "$_suffix"
+        return 1
+    fi
+    rm -f "$IP_DATA_FILE${_suffix}" "$IP_DATA_FILE_USER_INSTANCES${_suffix}" "$IP_DATA_FILE_BYPASS${_suffix}" \
+        "$DNSMASQ_DATA_FILE${_suffix}" "$DNSMASQ_DATA_FILE_USER_INSTANCES${_suffix}" "$DNSMASQ_DATA_FILE_BYPASS${_suffix}" \
+        "$UPDATE_STATUS_FILE${_suffix}" "$USER_ENTRIES_STATUS_FILE${_suffix}"
+    return 0
+}
+
 PreStartCheck() {
     [ -d "$DATA_DIR" ] || mkdir -p "$DATA_DIR"
     [ "$ENABLE_HTML_INFO" = "1" -a ! -d "$HTML_DIR" ] && mkdir -p "$HTML_DIR"
@@ -740,15 +788,14 @@ PreStartCheck() {
 }
 
 AddBypassEntries() {
-    if [ -d "$DATA_DIR" ]; then
-        printf "" > "$DNSMASQ_DATA_FILE_BYPASS"
-        printf "" > "$IP_DATA_FILE_BYPASS"
-        printf "flush set %s %s\nflush set %s %s\n" "$NFT_TABLE" "$NFTSET_BYPASS_IP" "$NFT_TABLE" "$NFTSET_BYPASS_FQDN" >> "$IP_DATA_FILE_BYPASS"
-    fi
-    FlushNftSets "$NFTSET_BYPASS_IP" "$NFTSET_BYPASS_FQDN"
+    local _ip_data_file="$IP_DATA_FILE_BYPASS_TMP" _dnsmasq_data_file="$DNSMASQ_DATA_FILE_BYPASS_TMP"
+    rm -f "$_ip_data_file" "$_dnsmasq_data_file" || return 1
+    : > "$_ip_data_file" || return 1
+    : > "$_dnsmasq_data_file" || return 1
+    printf "flush set %s %s\nflush set %s %s\n" "$NFT_TABLE" "$NFTSET_BYPASS_IP" "$NFT_TABLE" "$NFTSET_BYPASS_FQDN" >> "$_ip_data_file" || return 1
     if [ "$BYPASS_MODE" = "1" ]; then
         if [ -f "$BYPASS_ENTRIES_FILE" ]; then
-            $AWK_CMD '
+            $AWK_CMD -v DNSMASQ_DATA_FILE_BYPASS="$_dnsmasq_data_file" -v IP_DATA_FILE_BYPASS="$_ip_data_file" '
                 BEGIN {
                     delete ip_array;
                     delete fqdn_array;
@@ -764,9 +811,9 @@ AddBypassEntries() {
                         dns = ENVIRON["BYPASS_ENTRIES_DNS"];
                     };
                     if(length(dns) > 0) {
-                        printf "server=/%s/%s\n", val, dns >> ENVIRON["DNSMASQ_DATA_FILE_BYPASS"];
+                        printf "server=/%s/%s\n", val, dns >> DNSMASQ_DATA_FILE_BYPASS;
                     };
-                    printf "nftset=/%s/%s#%s\n", val, ENVIRON["NFT_TABLE_DNSMASQ"], ENVIRON["NFTSET_BYPASS_FQDN"] >> ENVIRON["DNSMASQ_DATA_FILE_BYPASS"];
+                    printf "nftset=/%s/%s#%s\n", val, ENVIRON["NFT_TABLE_DNSMASQ"], ENVIRON["NFTSET_BYPASS_FQDN"] >> DNSMASQ_DATA_FILE_BYPASS;
                 };
                 function writeFqdnEntries() {
                     for(i in fqdn_array) {
@@ -784,11 +831,11 @@ AddBypassEntries() {
                     };
                 }
                 END {
-                    printf "table %s {\n%s", ENVIRON["NFT_TABLE"], ENVIRON["NFTSET_BYPASS_IP_STRING"] >> ENVIRON["IP_DATA_FILE_BYPASS"];
+                    printf "table %s {\n%s", ENVIRON["NFT_TABLE"], ENVIRON["NFTSET_BYPASS_IP_STRING"] >> IP_DATA_FILE_BYPASS;
                     if(length(ip_array) > 0) {
-                        printf "elements={%s};", writeIpList(ip_array) >> ENVIRON["IP_DATA_FILE_BYPASS"];
+                        printf "elements={%s};", writeIpList(ip_array) >> IP_DATA_FILE_BYPASS;
                     };
-                    printf "}\n}\n" >> ENVIRON["IP_DATA_FILE_BYPASS"];
+                    printf "}\n}\n" >> IP_DATA_FILE_BYPASS;
                     writeFqdnEntries();
                 }' "$BYPASS_ENTRIES_FILE"
         fi
@@ -796,22 +843,14 @@ AddBypassEntries() {
 }
 
 AddUserEntries() {
-    local _inst _url _return_code=0 _instance_return_code=0 _attempt=1 _instance_entries_file _ip_data_file_user_instances _dnsmasq_data_file_user_instances _user_entries_status_file _str _update_string
-
-    if [ "$ENABLE_TMP_DOWNLOADS" = "1" ]; then
-        _ip_data_file_user_instances="$IP_DATA_FILE_USER_INSTANCES_TMP"
-        _dnsmasq_data_file_user_instances="$DNSMASQ_DATA_FILE_USER_INSTANCES_TMP"
-        _user_entries_status_file="$USER_ENTRIES_STATUS_FILE_TMP"
-        rm -f "$_ip_data_file_user_instances" "$_dnsmasq_data_file_user_instances" "$_user_entries_status_file"
-    else
-        _ip_data_file_user_instances="$IP_DATA_FILE_USER_INSTANCES"
-        _dnsmasq_data_file_user_instances="$DNSMASQ_DATA_FILE_USER_INSTANCES"
-        _user_entries_status_file="$USER_ENTRIES_STATUS_FILE"
-    fi
-
-    if [ "$ENABLE_TMP_DOWNLOADS" != "1" ]; then
-        ClearDataFiles user_instances
-    fi
+    local _inst _url _return_code=0 _instance_return_code=0 _instance_entries_file _str _update_string
+    local _ip_data_file_user_instances="$IP_DATA_FILE_USER_INSTANCES_TMP"
+    local _dnsmasq_data_file_user_instances="$DNSMASQ_DATA_FILE_USER_INSTANCES_TMP"
+    local _user_entries_status_file="$USER_ENTRIES_STATUS_FILE_TMP"
+    rm -f "$_ip_data_file_user_instances" "$_dnsmasq_data_file_user_instances" "$_user_entries_status_file" || return 1
+    : > "$_ip_data_file_user_instances" || return 1
+    : > "$_dnsmasq_data_file_user_instances" || return 1
+    : > "$_user_entries_status_file" || return 1
 
     for _inst in $USER_INSTANCES_ALL_FNAMES
     do
@@ -823,11 +862,11 @@ AddUserEntries() {
             MakeLogRecord "debug" "ruantiblock.AddUserEntries._instance_entries_file=${_instance_entries_file}"
         fi
 
-        printf "flush set %s %s\nflush set %s %s\n" "$NFT_TABLE" "${NFTSET_CIDR}.${U_NAME}" "$NFT_TABLE" "${NFTSET_IP}.${U_NAME}" >> "$_ip_data_file_user_instances"
+        printf "flush set %s %s\nflush set %s %s\n" "$NFT_TABLE" "${NFTSET_CIDR}.${U_NAME}" "$NFT_TABLE" "${NFTSET_IP}.${U_NAME}" >> "$_ip_data_file_user_instances" || _return_code=1
 
         if [ "$U_PROXY_MODE" != "2" -a "$U_PROXY_MODE" != "3" ]; then
             ### Запись для .onion
-            printf "server=/onion/%s\nnftset=/onion/%s#%s\n" "$U_ONION_DNS_ADDR" "$NFT_TABLE_DNSMASQ" "${NFTSET_ONION}.${U_NAME}" >> "$_dnsmasq_data_file_user_instances"
+            printf "server=/onion/%s\nnftset=/onion/%s#%s\n" "$U_ONION_DNS_ADDR" "$NFT_TABLE_DNSMASQ" "${NFTSET_ONION}.${U_NAME}" >> "$_dnsmasq_data_file_user_instances" || _return_code=1
         fi
 
         if [ "$U_ENABLE_ENTRIES_REMOTE_PROXY" = "1" ]; then
@@ -865,29 +904,13 @@ AddUserEntries() {
 
         if [ $_instance_return_code -ne 0 ]; then
             _return_code=$_instance_return_code
-            if [ "$ENABLE_TMP_DOWNLOADS" = "1" ]; then
-                break
-            fi
+            ClearUserInstanceVars
+            break
         fi
         ClearUserInstanceVars
     done
 
-    if [ "$ENABLE_TMP_DOWNLOADS" = "1" ]; then
-        if [ $_return_code -eq 0 ]; then
-            ClearDataFiles user_instances
-            if [ -e "$_ip_data_file_user_instances" ]; then
-                cat "$_ip_data_file_user_instances" >> "$IP_DATA_FILE_USER_INSTANCES"
-            fi
-            if [ -e "$_dnsmasq_data_file_user_instances" ]; then
-                cat "$_dnsmasq_data_file_user_instances" >> "$DNSMASQ_DATA_FILE_USER_INSTANCES"
-            fi
-            if [ -e "$_user_entries_status_file" ]; then
-                mv -f "$_user_entries_status_file" "$USER_ENTRIES_STATUS_FILE"
-            fi
-        fi
-        rm -f "$_ip_data_file_user_instances" "$_dnsmasq_data_file_user_instances" "$_user_entries_status_file"
-    fi
-    if [ "$ENABLE_TMP_DOWNLOADS" != "1" ] || [ "$ENABLE_TMP_DOWNLOADS" = "1" -a $_return_code -eq 0 ]; then
+    if [ $_return_code -eq 0 ]; then
         while read _str
         do
             _update_string=$(printf "$_str" | $AWK_CMD '{
@@ -900,7 +923,7 @@ AddUserEntries() {
                 echo " ${_update_string}"
                 MakeLogRecord "notice" "${_update_string}"
             fi
-        done < "$USER_ENTRIES_STATUS_FILE"
+        done < "$_user_entries_status_file"
     fi
 
     return $_return_code
@@ -916,13 +939,19 @@ ToggleUPIDFile() {
 
 GetMainInstanceEntries() {
     local _return_code=1 _attempt=1 _update_string
+    local _ip_data_file="$IP_DATA_FILE_TMP" _dnsmasq_data_file="$DNSMASQ_DATA_FILE_TMP" _update_status_file="$UPDATE_STATUS_FILE_TMP"
+    local _runtime_ip_data_file="$IP_DATA_FILE" _runtime_dnsmasq_data_file="$DNSMASQ_DATA_FILE" _runtime_update_status_file="$UPDATE_STATUS_FILE"
     PreStartCheck
     if [ -n "$BLLIST_PRESET" -a -n "$BLLIST_MODULE" ]; then
         while :
         do
+            rm -f "$_ip_data_file" "$_dnsmasq_data_file" "$_update_status_file"
             if [ "$ENABLE_BLLIST_PROXY" = "1" ]; then
                 UpdateBllistProxySet " " "$BLLIST_HOSTS"
             fi
+            export IP_DATA_FILE="$_ip_data_file"
+            export DNSMASQ_DATA_FILE="$_dnsmasq_data_file"
+            export UPDATE_STATUS_FILE="$_update_status_file"
 
             if [ $DEBUG -ge 1 ]; then
                 echo "  ruantiblock.GetMainInstanceEntries: BLLIST_MODULE=${BLLIST_MODULE} MODULE_RUN_TIMEOUT=${MODULE_RUN_TIMEOUT} _attempt=${_attempt}" >&2
@@ -938,6 +967,9 @@ GetMainInstanceEntries() {
                 $BLLIST_MODULE
                 _return_code=$?
             fi
+            export IP_DATA_FILE="$_runtime_ip_data_file"
+            export DNSMASQ_DATA_FILE="$_runtime_dnsmasq_data_file"
+            export UPDATE_STATUS_FILE="$_runtime_update_status_file"
 
             [ $_return_code -eq 0 ] && break
             ### STDOUT
@@ -951,28 +983,31 @@ GetMainInstanceEntries() {
             FlushNftSets "$NFTSET_BLLIST_PROXY"
         fi
         if [ $_return_code -eq 0 ]; then
+            [ -s "$_ip_data_file" ] && [ -f "$_dnsmasq_data_file" ] && [ -f "$_update_status_file" ] || _return_code=1
+        fi
+        if [ $_return_code -eq 0 ]; then
             _update_string=$($AWK_CMD '{
                 printf "Received entries: %s\n", (NF < 3) ? "No data" : "CIDR: "$1", IP: "$2", FQDN: "$3;
                 exit;
-            }' "$UPDATE_STATUS_FILE")
+            }' "$_update_status_file")
             ### STDOUT
             echo " ${_update_string}"
             MakeLogRecord "notice" "${_update_string}"
-            printf " $(date +%d.%m.%Y-%H:%M)\n" >> "$UPDATE_STATUS_FILE"
+            printf " $(date +%d.%m.%Y-%H:%M)\n" >> "$_update_status_file" || _return_code=1
         fi
     elif [ -z "$BLLIST_PRESET" -a -z "$BLLIST_MODULE" ]; then
-        ClearDataFiles main_instance
+        : > "$_ip_data_file" && : > "$_dnsmasq_data_file" && printf "0 0 0" > "$_update_status_file" || _return_code=2
+        [ $_return_code -ne 2 ] || return $_return_code
         _return_code=3
     else
         _return_code=2
-        return $_return_code
     fi
     if [ $_return_code -eq 0 ]; then
         if [ "$PROXY_MODE" = "2" -o "$PROXY_MODE" = "3" ]; then
-            printf "" >> "$DNSMASQ_DATA_FILE"
+            printf "" >> "$_dnsmasq_data_file" || _return_code=1
         else
             ### Запись для .onion в $DNSMASQ_DATA_FILE
-            printf "server=/onion/%s\nnftset=/onion/%s#%s\n" "$ONION_DNS_ADDR" "$NFT_TABLE_DNSMASQ" "$NFTSET_ONION" >> "$DNSMASQ_DATA_FILE"
+            printf "server=/onion/%s\nnftset=/onion/%s#%s\n" "$ONION_DNS_ADDR" "$NFT_TABLE_DNSMASQ" "$NFTSET_ONION" >> "$_dnsmasq_data_file" || _return_code=1
         fi
     fi
     return $_return_code
@@ -980,12 +1015,13 @@ GetMainInstanceEntries() {
 
 GetBlacklistFiles() {
     local _return_code=0 _user_entries_ret_code=1
-    AddBypassEntries
+    PreStartCheck
+    export ENABLE_TMP_DOWNLOADS=1
+    AddBypassEntries || _return_code=1
     GetMainInstanceEntries
     case $? in
         0)
             echo " Blacklist updated"
-            MakeLogRecord "notice" "Blacklist updated"
         ;;
         2)
             echo " Error! Blacklist update error" >&2
@@ -1008,6 +1044,7 @@ GetBlacklistFiles() {
     fi
     return $_return_code
 }
+
 
 MakeInstancesCache() {
     printf "USER_INSTANCES_ALL=\"${USER_INSTANCES_ALL}\"\nUSER_INSTANCES_ALL_FNAMES=\"${USER_INSTANCES_ALL_FNAMES}\"\nUSER_INSTANCES_VPN=\"${USER_INSTANCES_VPN}\"\nUSER_INSTANCES_VPN_FNAMES=\"${USER_INSTANCES_VPN_FNAMES}\"\nUSER_INSTANCES_CFG=\"${USER_INSTANCES_CFG}\"\nUSER_INSTANCES_CFG_FNAMES=\"${USER_INSTANCES_CFG_FNAMES}\"\n" > "$INSTANCES_CACHE"
@@ -1047,7 +1084,8 @@ CheckDnsmasqConfDir() {
 }
 
 Update() {
-    local _arg="$1" _return_code=0 _upd_sets_ret_code=0
+    local _arg="$1" _return_code=0 _cache_restored=0 _cache_result=""
+    export ENABLE_TMP_DOWNLOADS=1
     MakeToken
     if [ -e "$U_PID_FILE" ] && [ "$_arg" != "force-update" ]; then
         echo " ${NAME} ${_arg} - Error! Another instance of update is already running" >&2
@@ -1058,17 +1096,49 @@ Update() {
         ### Pre-update script
         [ -x "$PRE_UPDATE_SCRIPT" ] && $PRE_UPDATE_SCRIPT
         echo " ${NAME} ${_arg}..."
-        MakeLogRecord "notice" "${_arg}..."
         if [ "$NFTSET_CLEAR_SETS" = "1" ]; then
             FlushInstancesNftSets bllist
         fi
         GetBlacklistFiles
         _return_code=$?
-        FlushInstancesNftSets bllist
-        UpdateBllistSets
-        _upd_sets_ret_code=$?
         if [ $_return_code -eq 0 ]; then
-            _return_code=$_upd_sets_ret_code
+            FlushInstancesNftSets bllist
+            UpdateBllistSets staged
+            _return_code=$?
+        fi
+        if [ $_return_code -eq 0 ]; then
+            if ! PromoteStagedFiles; then
+                echo " Error! Staged lists could not be promoted" >&2
+                MakeLogRecord "err" "Error! Staged lists could not be promoted"
+                _return_code=1
+            fi
+        fi
+        if [ $_return_code -eq 0 ]; then
+            if [ -x "$LIST_CACHE_EXEC" ]; then
+                _cache_result=$("$LIST_CACHE_EXEC" save)
+                case "$_cache_result" in
+                    updated)
+                        MakeLogRecord "info" "list cache updated"
+                    ;;
+                    unchanged)
+                        [ $DEBUG -lt 1 ] || MakeLogRecord "debug" "list cache write skipped; matching cache is current"
+                    ;;
+                esac
+            fi
+            MakeLogRecord "notice" "blacklist updated from network"
+        else
+            if [ -x "$LIST_CACHE_EXEC" ] && "$LIST_CACHE_EXEC" restore; then
+                _cache_restored=1
+                MakeLogRecord "notice" "blacklist update failed; using cache"
+            else
+                MakeLogRecord "notice" "blacklist update failed; using runtime lists"
+            fi
+            if [ $_cache_restored -eq 1 ] || [ -f "$IP_DATA_FILE" -a -f "$IP_DATA_FILE_USER_INSTANCES" -a -f "$IP_DATA_FILE_BYPASS" ]; then
+                UpdateBllistSets
+            else
+                FlushInstancesNftSets bllist
+            fi
+            ClearStagedFiles
         fi
         RestartDnsmasq
         ToggleUPIDFile del
@@ -1080,7 +1150,7 @@ Update() {
 }
 
 Start() {
-    local _arg="$1" _return_code=1
+    local _arg="$1" _return_code=1 _cache_restore_code=1
     if [ -e "$START_PID_FILE" ]; then
         echo " ${NAME} is currently starting..." >&2
         return 1
@@ -1098,6 +1168,15 @@ Start() {
         DropNetConfig &> /dev/null
         SetNetConfig
         PreStartCheck
+        if [ -x "$LIST_CACHE_EXEC" ]; then
+            "$LIST_CACHE_EXEC" restore
+            _cache_restore_code=$?
+        fi
+        if [ $_cache_restore_code -eq 0 ]; then
+            MakeLogRecord "notice" "blacklist restored from cache"
+        elif [ $_cache_restore_code -ne 1 ]; then
+            MakeLogRecord "warning" "blacklist cache unavailable; using runtime lists"
+        fi
         UpdateBllistSets
         _return_code=$?
         if [ "$VPN_ROUTE_CHECK" = "1" -a -x "$ROUTE_CHECK_EXEC" ] && [ "$PROXY_MODE" = "2" -o -n "$USER_INSTANCES_VPN" ]; then
@@ -1287,7 +1366,7 @@ case "$1" in
         if CheckStatus; then
             :
         else
-            echo " ${NAME} ${_arg} - Error! ${NAME} does not running or another error has occurred" >&2
+            echo " ${NAME} $1 - Error! ${NAME} does not running or another error has occurred" >&2
             exit 1
         fi
         UpdateLocalIpSets
@@ -1308,6 +1387,11 @@ case "$1" in
             if CheckDnsmasqConfDir; then
                 GetBlacklistFiles
                 return_code=$?
+                if [ $return_code -eq 0 ]; then
+                    PromoteStagedFiles || return_code=1
+                else
+                    ClearStagedFiles
+                fi
             else
                 return_code=1
             fi
