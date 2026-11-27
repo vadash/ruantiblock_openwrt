@@ -1123,6 +1123,9 @@ Update() {
                     unchanged)
                         [ $DEBUG -lt 1 ] || MakeLogRecord "debug" "list cache write skipped; matching cache is current"
                     ;;
+                    *)
+                        MakeLogRecord "warning" "list cache update failed"
+                    ;;
                 esac
             fi
             MakeLogRecord "notice" "blacklist updated from network"
@@ -1175,7 +1178,7 @@ Start() {
         if [ $_cache_restore_code -eq 0 ]; then
             MakeLogRecord "notice" "blacklist restored from cache"
         elif [ $_cache_restore_code -ne 1 ]; then
-            MakeLogRecord "warning" "blacklist cache unavailable; using runtime lists"
+            MakeLogRecord "warning" "list snapshot unavailable; using runtime lists"
         fi
         UpdateBllistSets
         _return_code=$?

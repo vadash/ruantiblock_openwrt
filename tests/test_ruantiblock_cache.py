@@ -402,6 +402,7 @@ mv() {
         self.assertTrue(self.cache.is_dir())
         self.assertEqual(self.logged_events("notice").count("blacklist updated from network"), 1)
         self.assertNotIn("list cache updated", self.logged_events("info"))
+        self.assertEqual(self.logged_events("warning"), ["list cache update failed"])
 
     def test_corrupt_cache_warns_at_start_and_successful_update_replaces_it(self):
         self.assertEqual(self.run_helper("save").returncode, 0)
@@ -414,6 +415,7 @@ mv() {
         self.assertIn("corrupt", started.stderr.lower())
         self.assertEqual(self.runtime("ruantiblock.ip").read_text(), "old-main\n")
         self.assertNotIn("blacklist restored from cache", self.logged_events("notice"))
+        self.assertEqual(self.logged_events("warning"), ["list snapshot unavailable; using runtime lists"])
 
         updated = self.run_cli("update")
 
@@ -502,6 +504,7 @@ mv() {
         self.assertEqual(self.runtime("ruantiblock.ip").read_text(), "old-main\n")
         self.assertIn("old-main", self.log("applied"))
         self.assertEqual(self.logged_events("notice"), [])
+        self.assertEqual(self.logged_events("warning"), [])
 
 
 
