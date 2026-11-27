@@ -83,8 +83,8 @@ jobs:
           ln -s "$GITHUB_WORKSPACE/ruantiblock" package/ruantiblock
           ln -s "$GITHUB_WORKSPACE/luci-app-ruantiblock" package/luci-app-ruantiblock
           make defconfig
-          ./scripts/config --module LUCI_LANG_ru
-          ./scripts/config --module PACKAGE_luci-i18n-ruantiblock-ru
+          ./scripts/config/conf --module LUCI_LANG_ru
+          ./scripts/config/conf --module PACKAGE_luci-i18n-ruantiblock-ru
           make defconfig
           make package/ruantiblock/compile package/luci-app-ruantiblock/compile package/luci-i18n-ruantiblock-ru/compile V=s -j"$(nproc)"
 
