@@ -14,6 +14,8 @@
 * Интеграция с веб-интерфейсом OpenWrt.
 
 
+Пакеты для OpenWrt 24.10 и инструкции по установке и обновлению: [https://vadash.github.io/ruantiblock_openwrt/](https://vadash.github.io/ruantiblock_openwrt/)
+
 Подробно об установке и настройке: [https://github.com/gSpotx2f/ruantiblock_openwrt/wiki](https://github.com/gSpotx2f/ruantiblock_openwrt/wiki)
 
 ___________________

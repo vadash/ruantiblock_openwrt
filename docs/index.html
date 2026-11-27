@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ruantiblock packages for OpenWrt 24.10</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0 auto; max-width: 60rem; padding: 2rem 1rem; font: 1rem/1.6 system-ui, sans-serif; }
+    h1, h2, h3 { line-height: 1.2; }
+    code, pre { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
+    code { overflow-wrap: anywhere; }
+    pre { overflow-x: auto; padding: 1rem; border: 1px solid #8886; border-radius: .4rem; }
+    .notice { padding: 1rem; border-left: .3rem solid #b66; }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { padding: .5rem; border-bottom: 1px solid #8884; text-align: left; }
+    a { color: #268; }
+  </style>
+</head>
+<body>
+  <h1>Ruantiblock packages for OpenWrt 24.10</h1>
+  <p>This fork publishes architecture-independent packages for OpenWrt 24.10. Add the feed once, then use LuCI or SSH to install and update ruantiblock.</p>
+
+  <p class="notice"><strong>Unsigned personal feed.</strong> HTTPS protects the connection, but opkg does not verify a publisher signature. Add this feed only if you trust this repository.</p>
+
+  <h2>Packages</h2>
+  <table>
+    <thead><tr><th>Package</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>ruantiblock</code></td><td>Core service and nftables integration.</td></tr>
+      <tr><td><code>luci-app-ruantiblock</code></td><td>LuCI web interface. Depends on the core package.</td></tr>
+      <tr><td><code>luci-i18n-ruantiblock-ru</code></td><td>Optional Russian translation.</td></tr>
+    </tbody>
+  </table>
+  <p>The Lua and Python parser modules are not part of this feed.</p>
+
+  <h2>Option 1: add the feed in LuCI</h2>
+  <ol>
+    <li>Open <strong>System → Software → Configuration</strong>.</li>
+    <li>Add this line to <code>/etc/opkg/customfeeds.conf</code>:
+      <pre>src/gz ruantiblock https://vadash.github.io/ruantiblock_openwrt/24.10/</pre>
+    </li>
+    <li>Save the configuration and refresh the package lists.</li>
+    <li>Install <code>luci-app-ruantiblock</code>. OpenWrt installs <code>ruantiblock</code> as its dependency.</li>
+    <li>Optionally install <code>luci-i18n-ruantiblock-ru</code>.</li>
+  </ol>
+
+  <h2>Option 2: add the feed over SSH</h2>
+  <pre>cat &gt;&gt; /etc/opkg/customfeeds.conf &lt;&lt;'EOF'
+src/gz ruantiblock https://vadash.github.io/ruantiblock_openwrt/24.10/
+EOF
+
+opkg update
+opkg install luci-app-ruantiblock
+opkg install luci-i18n-ruantiblock-ru  # optional</pre>
+  <p>Keep the existing official OpenWrt feeds. They supply dependencies such as <code>dnsmasq-full</code> and <code>kmod-nft-tproxy</code>.</p>
+
+  <h2>Start the service after a fresh install</h2>
+  <pre>/etc/init.d/ruantiblock enable
+/etc/init.d/ruantiblock start</pre>
+  <p>No cron job is created. Configure your own update schedule if needed. Package upgrades preserve the service state and existing custom cron entries.</p>
+
+  <h2>Update</h2>
+  <pre>opkg update
+opkg upgrade ruantiblock luci-app-ruantiblock</pre>
+  <p>If the translation package is installed, update it too:</p>
+  <pre>opkg upgrade luci-i18n-ruantiblock-ru</pre>
+  <p>Use the targeted commands instead of an unrestricted <code>opkg upgrade</code>, which can update unrelated packages.</p>
+
+  <h2>Verify</h2>
+  <pre>opkg list-installed | grep ruantiblock
+/etc/init.d/ruantiblock status</pre>
+
+  <h2>Backup and rollback</h2>
+  <p>Before the first <code>2.1.12-r5</code> upgrade, save the current configuration:</p>
+  <pre>mkdir -p /tmp/ruantiblock-backup
+cp -a /etc/config/ruantiblock /etc/ruantiblock /tmp/ruantiblock-backup/
+[ -f /etc/crontabs/root ] &amp;&amp; cp -a /etc/crontabs/root /tmp/ruantiblock-backup/</pre>
+  <p>The feed retains fork-built package files. After a later release exists, replace <code>&lt;previous-version&gt;</code> with that release and install the retained files:</p>
+  <pre>wget -O /tmp/ruantiblock.ipk "https://vadash.github.io/ruantiblock_openwrt/24.10/ruantiblock_&lt;previous-version&gt;_all.ipk"
+wget -O /tmp/luci-app-ruantiblock.ipk "https://vadash.github.io/ruantiblock_openwrt/24.10/luci-app-ruantiblock_&lt;previous-version&gt;_all.ipk"
+opkg install /tmp/ruantiblock.ipk /tmp/luci-app-ruantiblock.ipk</pre>
+  <p>The first fork release has no earlier fork-built package to restore. Use the configuration backup if you need to return to the upstream installation.</p>
+
+  <h2>Source</h2>
+  <p><a href="https://github.com/vadash/ruantiblock_openwrt">vadash/ruantiblock_openwrt</a></p>
+</body>
+</html>
