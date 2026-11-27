@@ -158,28 +158,3 @@ jobs:
             git -C "$publish_dir" commit -m "Publish OpenWrt 24.10 packages for $GITHUB_REF_NAME"
             git -C "$publish_dir" push origin HEAD:gh-pages
           fi
-
-      - name: Enable GitHub Pages
-        if: startsWith(github.ref, 'refs/tags/v')
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          status="$(curl --silent --show-error --output /dev/null --write-out '%{http_code}' \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header 'Accept: application/vnd.github+json' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/pages")"
-          case "$status" in
-            404) method=POST ;;
-            200) method=PUT ;;
-            *)
-              echo "GitHub Pages API returned HTTP $status" >&2
-              exit 1
-              ;;
-          esac
-          curl --fail-with-body --silent --show-error --request "$method" \
-            --header "Authorization: Bearer $GH_TOKEN" \
-            --header 'Accept: application/vnd.github+json' \
-            --header 'X-GitHub-Api-Version: 2022-11-28' \
-            --data '{"build_type":"legacy","source":{"branch":"gh-pages","path":"/"}}' \
-            "https://api.github.com/repos/$GITHUB_REPOSITORY/pages"
