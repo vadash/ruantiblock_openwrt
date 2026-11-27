@@ -85,7 +85,7 @@ jobs:
           make defconfig
           printf '%s\n' 'CONFIG_LUCI_LANG_ru=m' 'CONFIG_PACKAGE_luci-i18n-ruantiblock-ru=m' >> .config
           make defconfig
-          make package/ruantiblock/compile package/luci-app-ruantiblock/compile package/luci-i18n-ruantiblock-ru/compile V=s -j"$(nproc)"
+          make package/ruantiblock/compile package/luci-app-ruantiblock/compile V=s -j"$(nproc)"
 
       - name: Validate packages and build index
         shell: bash
