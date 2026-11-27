@@ -241,6 +241,6 @@ NftListBllistChainJson() {
 }
 
 NftReturnStatus() {
-    $NFT_CMD -c add rule $NFT_TABLE "$NFT_ALLOWED_HOSTS_CHAIN" continue &> /dev/null
+    $NFT_CMD -c add rule $NFT_TABLE "$NFT_ALLOWED_HOSTS_CHAIN" continue > /dev/null 2>&1
     return $?
 }

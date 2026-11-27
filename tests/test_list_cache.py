@@ -25,6 +25,7 @@ class ListCacheTests(unittest.TestCase):
             "usr/libexec/ruantiblock",
             "var/ruantiblock",
             "var/dnsmasq.d",
+            "tmp",
         ):
             (self.root / directory).mkdir(parents=True, exist_ok=True)
         (self.root / "etc/config/ruantiblock").write_text("config ruantiblock 'config'\n")

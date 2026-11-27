@@ -412,7 +412,7 @@ FlushNftSets() {
     local _set
     for _set in "$@"
     do
-        $NFT_CMD flush set $NFT_TABLE "$_set" &> /dev/null
+        $NFT_CMD flush set $NFT_TABLE "$_set" > /dev/null 2>&1
     done
 }
 
@@ -664,8 +664,8 @@ DropNetConfig() {
 }
 
 DestroyNetConfig() {
-    $NFT_CMD flush table $NFT_TABLE &> /dev/null
-    $NFT_CMD delete table $NFT_TABLE &> /dev/null
+    $NFT_CMD flush table $NFT_TABLE > /dev/null 2>&1
+    $NFT_CMD delete table $NFT_TABLE > /dev/null 2>&1
 }
 
 CheckStatus() {
@@ -1168,7 +1168,7 @@ Start() {
     else
         echo " ${NAME} ${_arg}..."
         MakeLogRecord "info" "${_arg}..."
-        DropNetConfig &> /dev/null
+        DropNetConfig > /dev/null 2>&1
         SetNetConfig
         PreStartCheck
         if [ -x "$LIST_CACHE_EXEC" ]; then
@@ -1183,7 +1183,7 @@ Start() {
         UpdateBllistSets
         _return_code=$?
         if [ "$VPN_ROUTE_CHECK" = "1" -a -x "$ROUTE_CHECK_EXEC" ] && [ "$PROXY_MODE" = "2" -o -n "$USER_INSTANCES_VPN" ]; then
-            $ROUTE_CHECK_EXEC start &> /dev/null &
+            $ROUTE_CHECK_EXEC start > /dev/null 2>&1 &
         fi
         MakeInstancesCache
         ### Post-start script
@@ -1200,10 +1200,10 @@ Stop() {
         MakeToken
         echo " ${NAME} ${_arg}..."
         MakeLogRecord "info" "${_arg}..."
-        DropNetConfig &> /dev/null
+        DropNetConfig > /dev/null 2>&1
         _return_code=$?
         if [ -x "$ROUTE_CHECK_EXEC" ]; then
-            $ROUTE_CHECK_EXEC stop &> /dev/null
+            $ROUTE_CHECK_EXEC stop > /dev/null 2>&1
         fi
         ### Post-stop script
         [ -x "$POST_STOP_SCRIPT" ] && $POST_STOP_SCRIPT &
@@ -1240,8 +1240,8 @@ Reload() {
         fi
 
         echo " ${NAME} reload..."
-        DeleteNftRules &> /dev/null
-        AddNftRules &> /dev/null
+        DeleteNftRules > /dev/null 2>&1
+        AddNftRules > /dev/null 2>&1
         UpdateLocalIpSets
         MakeToken
     else
@@ -1330,7 +1330,7 @@ case "$1" in
         if [ "$1" = "delayed-restart" -a -n "$2" ]; then
             {
                 echo "$$" > "$START_PID_FILE"
-                sleep $2 &> /dev/null
+                sleep $2 > /dev/null 2>&1
                 rm -f "$START_PID_FILE"
                 Init
                 Stop "stop"
@@ -1338,7 +1338,7 @@ case "$1" in
                 return_code=$?
                 StatusOutput
                 exit $return_code;
-            } &> /dev/null &
+            } > /dev/null 2>&1 &
             return_code=0
         else
             Init
@@ -1356,7 +1356,7 @@ case "$1" in
     ;;
     destroy)
         Init
-        Stop "$1" &> /dev/null
+        Stop "$1" > /dev/null 2>&1
         DestroyNetConfig
         ClearDataFiles
         return_code=$?
